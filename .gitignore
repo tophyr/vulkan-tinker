@@ -1,4 +1,5 @@
-out/*
-.vs/*
-vcpkg_installed/*
+out
+.vs
+.vscode
+vcpkg_installed
 CMakeCache.txt
