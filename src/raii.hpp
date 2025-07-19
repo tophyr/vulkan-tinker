@@ -27,7 +27,7 @@ struct MoveOnlyHolder final { // must be final to use destroy/reconstruct patter
   }
 
   ~MoveOnlyHolder() noexcept {
-    if (t_ != T{}) {
+    if (t_ != kDefault) {
       Dtor(t_);
     }
   }
@@ -37,6 +37,7 @@ struct MoveOnlyHolder final { // must be final to use destroy/reconstruct patter
   }
 
 private:
+  static constexpr T kDefault{};
   T t_{};
 };
 
