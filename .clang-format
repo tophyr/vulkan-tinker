@@ -1,0 +1,25 @@
+BasedOnStyle: Google
+
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+
+BreakBeforeBraces: Attach
+
+ColumnLimit: 120
+
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+
+PointerAlignment: Right
+
+SortIncludes: true
+IncludeBlocks: Preserve
+
+ReflowComments: true
+
+KeepEmptyLinesAtEOF: false
+
+IndentPPDirectives: AfterHash
+
