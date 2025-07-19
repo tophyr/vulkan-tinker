@@ -1,12 +1,18 @@
-﻿// vulkan-tinker.cpp : Defines the entry point for the application.
-//
+﻿#include "glfw.hpp"
 
-#include "vulkan-tinker.h"
+int main() {
+    glfwInit();
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-using namespace std;
+    {
+        glfw::Window window{ 1920, 1080, "Vulkan Tinker" };
 
-int main()
-{
-	cout << "Hello CMake." << endl;
-	return 0;
+        while (!glfwWindowShouldClose(window)) {
+            glfwPollEvents();
+        }
+    }
+
+    glfwTerminate();
+
+    return 0;
 }
