@@ -12,7 +12,7 @@ endif()
 project ("vulkan-tinker")
 
 # Add source to this project's executable.
-add_executable (vulkan-tinker "vulkan-tinker.cpp" "vulkan-tinker.h")
+add_executable (vulkan-tinker main.cpp)
 
 find_package(glfw3 CONFIG REQUIRED)
 target_link_libraries(vulkan-tinker PRIVATE glfw)
