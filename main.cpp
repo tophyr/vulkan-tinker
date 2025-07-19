@@ -1,18 +1,18 @@
 ﻿#include "glfw.hpp"
 
 int main() {
-    glfwInit();
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+  glfwInit();
+  glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-    {
-        glfw::Window window{ 1920, 1080, "Vulkan Tinker" };
+  {
+    glfw::Window window{ 1920, 1080, "Vulkan Tinker" };
 
-        while (!glfwWindowShouldClose(window)) {
-            glfwPollEvents();
-        }
+    while (!glfwWindowShouldClose(window)) {
+      glfwPollEvents();
     }
+  }
 
-    glfwTerminate();
+  glfwTerminate();
 
-    return 0;
+  return 0;
 }

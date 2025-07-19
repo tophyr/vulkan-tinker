@@ -1,21 +1,17 @@
-#include <memory>
+#pragma once
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include "raii.hpp"
+
 namespace glfw {
 
-    struct Window {
-        Window(int width, int height, char const* title)
-            : window_{ glfwCreateWindow(width, height, title, nullptr, nullptr), glfwDestroyWindow } {
-        }
-
-        operator GLFWwindow* () {
-            return window_.get();
-        }
-
-    private:
-        std::unique_ptr<GLFWwindow, void(*)(GLFWwindow*)> window_;
-    };
+using Window = raii::Holder<
+  GLFWwindow*,
+  [](int width, int height, char const* title) {
+    return glfwCreateWindow(width, height, title, nullptr, nullptr);
+  },
+  glfwDestroyWindow>;
 
 }
