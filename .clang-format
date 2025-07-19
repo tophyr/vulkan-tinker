@@ -23,3 +23,8 @@ KeepEmptyLinesAtEOF: false
 
 IndentPPDirectives: AfterHash
 
+AlwaysBreakTemplateDeclarations: MultiLine
+BinPackParameters: false
+BinPackArguments: false
+AlignAfterOpenBracket: DontAlign
+PenaltyBreakTemplateDeclaration: 1000000
