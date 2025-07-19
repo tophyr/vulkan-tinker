@@ -1,7 +1,7 @@
 ﻿#include "glfw.hpp"
 
 int main() {
-  glfwInit();
+  glfw::GlobalState glfwState;
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
   {
@@ -11,8 +11,6 @@ int main() {
       glfwPollEvents();
     }
   }
-
-  glfwTerminate();
 
   return 0;
 }
