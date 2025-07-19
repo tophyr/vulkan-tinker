@@ -2,8 +2,16 @@
     "version": 3,
     "configurePresets": [
         {
+            "name": "vcpkg-base",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+            }
+        },
+        {
             "name": "windows-base",
             "hidden": true,
+            "inherits": "vcpkg-base",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/out/build/${presetName}",
             "installDir": "${sourceDir}/out/install/${presetName}",
@@ -60,6 +68,7 @@
         {
             "name": "linux-debug",
             "displayName": "Linux Debug",
+            "inherits": "vcpkg-base",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/out/build/${presetName}",
             "installDir": "${sourceDir}/out/install/${presetName}",
@@ -80,6 +89,7 @@
         {
             "name": "macos-debug",
             "displayName": "macOS Debug",
+            "inherits": "vcpkg-base",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/out/build/${presetName}",
             "installDir": "${sourceDir}/out/install/${presetName}",
