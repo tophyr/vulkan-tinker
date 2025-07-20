@@ -1,6 +1,8 @@
 #pragma once
 
 #include <algorithm>
+#include <iterator>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <string_view>
@@ -33,7 +35,17 @@ inline auto getPhysicalDeviceQueueFamilyProperties(VkPhysicalDevice device) {
   return raii::VecFetcher<VkQueueFamilyProperties, vkGetPhysicalDeviceQueueFamilyProperties>(device);
 }
 
-using Instance = raii::MoveOnlyHolder<VkInstance,
+inline auto getPhysicalDeviceSurfaceSupportKHR(
+    VkPhysicalDevice device, uint32_t queueFamilyIndex, VkSurfaceKHR surface) {
+  return raii::Fetcher<VkBool32, vkGetPhysicalDeviceSurfaceSupportKHR>(device, queueFamilyIndex, surface);
+}
+
+inline auto getDeviceQueue(VkDevice device, uint32_t queueIndex) {
+  return raii::Fetcher<VkQueue, vkGetDeviceQueue>(device, queueIndex, 0);
+}
+
+using Instance = raii::MoveOnlyHolder<
+    VkInstance,
     [](char const* name, std::span<char const* const> requiredLayers = {}) {
       auto availableLayers = enumerateInstanceLayerProperties();
       for (auto const& layerName : requiredLayers) {
@@ -70,7 +82,7 @@ using Instance = raii::MoveOnlyHolder<VkInstance,
     [](VkInstance instance) { vkDestroyInstance(instance, nullptr); }>;
 
 struct Device {
-  Device(VkInstance instance) : Device{init(instance)} {}
+  Device(VkInstance instance, VkSurfaceKHR surface) : Device{init(instance, surface)} {}
 
   operator VkDevice() const {
     return static_cast<VkDevice>(device_);
@@ -80,33 +92,46 @@ struct Device {
     return graphicsQueue_;
   }
 
+  VkQueue presentQueue() const {
+    return presentQueue_;
+  }
+
  private:
-  std::pair<VkDevice, VkQueue> init(VkInstance instance) {
-    auto const& [physDevice, queueIndex] = [&] {
+  std::tuple<VkDevice, VkQueue, VkQueue> init(VkInstance instance, VkSurfaceKHR surface) {
+    auto const& [physDevice, gfxQueueIdx, presentQueueIdx] = [&] {
       for (auto const& physDevice : enumeratePhysicalDevices(instance)) {
-        auto const& queueFamilies = getPhysicalDeviceQueueFamilyProperties(physDevice);
-        for (uint32_t i = 0; i < queueFamilies.size(); i++) {
-          if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-            return std::pair{physDevice, i};
+        auto queueFamilies = getPhysicalDeviceQueueFamilyProperties(physDevice);
+        auto gfxQueue =
+            std::ranges::find_if(queueFamilies, [](auto const& qf) { return qf.queueFlags & VK_QUEUE_GRAPHICS_BIT; });
+        if (gfxQueue == queueFamilies.cend()) {
+          continue;
+        }
+        for (uint32_t i{}; i < queueFamilies.size(); i++) {
+          if (getPhysicalDeviceSurfaceSupportKHR(physDevice, i, surface)) {
+            return std::tuple{physDevice, static_cast<uint32_t>(std::distance(queueFamilies.begin(), gfxQueue)), i};
           }
         }
       }
       throw std::runtime_error{"no gpu supporting graphics queue"};
     }();
 
-    float prio{1.0};
-    VkDeviceQueueCreateInfo queueCreateInfo{
-        .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-        .queueFamilyIndex = queueIndex,
-        .queueCount = 1,
-        .pQueuePriorities = &prio,
-    };
+    float const prio{1.0};
+    std::set<uint32_t> qIdxs{gfxQueueIdx, presentQueueIdx};
+    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos{};
+    std::transform(qIdxs.cbegin(), qIdxs.cend(), std::back_inserter(queueCreateInfos), [&](auto idx) {
+      return VkDeviceQueueCreateInfo{
+          .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+          .queueFamilyIndex = idx,
+          .queueCount = 1,
+          .pQueuePriorities = &prio,
+      };
+    });
 
     VkPhysicalDeviceFeatures deviceFeatures{};
     VkDeviceCreateInfo createInfo{
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .queueCreateInfoCount = 1,
-        .pQueueCreateInfos = &queueCreateInfo,
+        .queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size()),
+        .pQueueCreateInfos = queueCreateInfos.data(),
         .pEnabledFeatures = &deviceFeatures,
     };
 
@@ -115,15 +140,51 @@ struct Device {
       throw std::runtime_error{"failed to create logical device"};
     }
 
-    VkQueue graphicsQueue{};
-    vkGetDeviceQueue(device, queueIndex, 0, &graphicsQueue);
-    return {device, graphicsQueue};
+    return {device, getDeviceQueue(device, gfxQueueIdx), getDeviceQueue(device, presentQueueIdx)};
   }
 
-  Device(std::pair<VkDevice, VkQueue> dat) : device_{dat.first}, graphicsQueue_{dat.second} {}
+  Device(std::tuple<VkDevice, VkQueue, VkQueue> dat)
+      : device_{std::get<0>(dat)}, graphicsQueue_{std::get<1>(dat)}, presentQueue_{std::get<2>(dat)} {}
 
   raii::MoveOnlyHolder<VkDevice, std::identity{}, [](VkDevice device) { vkDestroyDevice(device, nullptr); }> device_;
   VkQueue graphicsQueue_;
+  VkQueue presentQueue_;
+};
+
+struct Surface final {
+  Surface(VkInstance instance, GLFWwindow* window)
+      : instance_{instance}, surface_{[&] {
+          VkSurfaceKHR surface{};
+          if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
+            throw std::runtime_error{"failed to create window surface"};
+          }
+          return surface;
+        }()} {}
+
+  Surface(Surface const&) = delete;
+  Surface& operator=(Surface const&) = delete;
+
+  Surface(Surface&& other) noexcept
+      : instance_{std::exchange(other.instance_, {})}, surface_{std::exchange(other.surface_, {})} {}
+  Surface& operator=(Surface&& other) noexcept {
+    if (this != &other) {
+      std::destroy_at(this);
+      std::construct_at(this, std::move(other));
+    }
+    return *this;
+  }
+
+  operator VkSurfaceKHR() const noexcept {
+    return surface_;
+  }
+
+  ~Surface() noexcept {
+    vkDestroySurfaceKHR(instance_, surface_, nullptr);
+  }
+
+ private:
+  VkInstance instance_{};
+  VkSurfaceKHR surface_{};
 };
 
 }  // namespace vk

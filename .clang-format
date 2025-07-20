@@ -26,5 +26,10 @@ IndentPPDirectives: AfterHash
 AlwaysBreakTemplateDeclarations: MultiLine
 BinPackParameters: false
 BinPackArguments: false
-AlignAfterOpenBracket: DontAlign
 PenaltyBreakTemplateDeclaration: 1000000
+
+AlignAfterOpenBracket: AlwaysBreak
+BraceWrapping:
+  SplitEmptyRecord: false
+  SplitEmptyFunction: false
+Cpp11BracedListStyle: true

@@ -15,8 +15,10 @@ int main() {
   {
     glfw::Window window{1920, 1080, kName};
     vk::Instance instance{kName, kInstanceLayers};
-    vk::Device device{instance};
+    vk::Surface surface{instance, window};
+    vk::Device device{instance, surface};
     auto gfxQ = device.graphicsQueue();
+    auto presQ = device.presentQueue();
 
     while (!glfwWindowShouldClose(window)) {
       glfwPollEvents();
