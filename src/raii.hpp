@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <type_traits>
+#include <vector>
 
 namespace raii {
 
@@ -40,5 +41,14 @@ private:
   static constexpr T kDefault{};
   T t_{};
 };
+
+template <typename Elem, auto Func>
+std::vector<Elem> SizedVecFetcher() {
+  uint32_t count{};
+  Func(&count, nullptr);
+  std::vector<Elem> elems{count};
+  Func(&count, elems.data());
+  return elems;
+}
 
 }

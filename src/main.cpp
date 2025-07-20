@@ -1,7 +1,12 @@
-﻿#include "glfw.hpp"
+﻿#include <array>
+
+#include "glfw.hpp"
 #include "vulkan.hpp"
 
+using namespace std::literals;
+
 constexpr char const* kName{"Vulkan Tinker"};
+constexpr std::array kInstanceLayers{"VK_LAYER_KHRONOS_validation"};
 
 int main() {
   glfw::GlobalState glfwState;
@@ -9,7 +14,7 @@ int main() {
 
   {
     glfw::Window window{1920, 1080, kName};
-    vk::Instance instance{kName};
+    vk::Instance instance{kName, kInstanceLayers};
 
     while (!glfwWindowShouldClose(window)) {
       glfwPollEvents();
