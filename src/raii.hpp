@@ -7,44 +7,51 @@
 
 namespace raii {
 
-template <typename T, auto Ctor, auto Dtor>
-struct MoveOnlyHolder final { // must be final to use destroy/reconstruct pattern in operator=
-  template <typename... Args>
-  MoveOnlyHolder(Args&&... args)
-    : t_{Ctor(std::forward<Args>(args)...)} { }
+template <typename CRTP, typename T, T kNil = T{}> struct UniqueHandle {
+  constexpr UniqueHandle() = default;
+  explicit UniqueHandle(T t) : t_{t} {}
 
-  MoveOnlyHolder(MoveOnlyHolder const&) = delete;
-  MoveOnlyHolder& operator=(MoveOnlyHolder const&) = delete;
+  UniqueHandle(UniqueHandle const&) = delete;
+  UniqueHandle& operator=(UniqueHandle const&) = delete;
 
-  MoveOnlyHolder(MoveOnlyHolder&& other) noexcept
-    : t_{ std::exchange(other.t_, 0) } {
-  }
+  UniqueHandle(UniqueHandle&& other) noexcept : t_{std::exchange(other.t_, kNil)} {}
 
-  MoveOnlyHolder& operator=(MoveOnlyHolder&& other) {
+  UniqueHandle& operator=(UniqueHandle&& other) {
     if (this != &other) {
-      std::destroy_at(this);
-      std::construct_at(this, std::move(other));
+      maybeDestroy();
+      t_ = std::exchange(other.t_, kNil);
     }
     return *this;
   }
 
-  ~MoveOnlyHolder() noexcept {
-    if (t_ != kDefault) {
-      Dtor(t_);
-    }
+  ~UniqueHandle() {
+    maybeDestroy();
   }
 
   operator T() const {
     return t_;
   }
 
-private:
-  static constexpr T kDefault{};
-  T t_{};
+  explicit operator bool() const {
+    return *this != kNil;
+  }
+
+  void reset() {
+    maybeDestroy();
+    t_ = kNil;
+  }
+
+ private:
+  void maybeDestroy() {
+    if (t_) {
+      static_cast<CRTP*>(this)->destroy(t_);
+    }
+  }
+
+  T t_{kNil};
 };
 
-template <typename Elem, auto Func, typename... Args>
-std::vector<Elem> VecFetcher(Args&&... args) {
+template <typename Elem, auto Func, typename... Args> std::vector<Elem> VecFetcher(Args&&... args) {
   uint32_t count{};
   Func(args..., &count, nullptr);
   std::vector<Elem> elems{count};
@@ -52,11 +59,10 @@ std::vector<Elem> VecFetcher(Args&&... args) {
   return elems;
 }
 
-template <typename T, auto Func, typename... Args>
-T Fetcher(Args&&... args) {
+template <typename T, auto Func, typename... Args> T Fetcher(Args&&... args) {
   T t{};
   Func(std::forward<Args>(args)..., &t);
   return t;
 }
 
-}
+}  // namespace raii

@@ -25,9 +25,16 @@ struct GlobalState {
   }
 };
 
-using Window = raii::MoveOnlyHolder<
-    GLFWwindow*,
-    [](int width, int height, char const *title) { return glfwCreateWindow(width, height, title, nullptr, nullptr); },
-    glfwDestroyWindow>;
+struct Window : raii::UniqueHandle<Window, GLFWwindow*>
+{
+  Window(int width, int height, char const* title)
+      : UniqueHandle{glfwCreateWindow(width, height, title, nullptr, nullptr)} {}
+
+ private:
+  friend UniqueHandle<Window, GLFWwindow*>;
+  void destroy(GLFWwindow* window) {
+    glfwDestroyWindow(window);
+  }
+};
 
 }  // namespace glfw
