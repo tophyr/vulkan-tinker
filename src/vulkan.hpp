@@ -50,11 +50,15 @@ using Instance = raii::MoveOnlyHolder<VkInstance,
           .apiVersion = VK_API_VERSION_1_0,
       };
 
+      auto glfwExtensions = glfw::getRequiredInstanceExtensions();
+
       VkInstanceCreateInfo createInfo{
           .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
           .pApplicationInfo = &appInfo,
           .enabledLayerCount = static_cast<uint32_t>(requiredLayers.size()),
           .ppEnabledLayerNames = requiredLayers.data(),
+          .enabledExtensionCount = static_cast<uint32_t>(glfwExtensions.size()),
+          .ppEnabledExtensionNames = glfwExtensions.data(),
       };
 
       VkInstance instance{};
