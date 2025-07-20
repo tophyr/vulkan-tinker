@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <type_traits>
 #include <vector>
 
@@ -42,13 +43,20 @@ private:
   T t_{};
 };
 
-template <typename Elem, auto Func>
-std::vector<Elem> SizedVecFetcher() {
+template <typename Elem, auto Func, typename... Args>
+std::vector<Elem> VecFetcher(Args&&... args) {
   uint32_t count{};
-  Func(&count, nullptr);
+  Func(args..., &count, nullptr);
   std::vector<Elem> elems{count};
-  Func(&count, elems.data());
+  Func(args..., &count, elems.data());
   return elems;
+}
+
+template <typename T, auto Func, typename... Args>
+T Fetcher(Args&&... args) {
+  T t{};
+  Func(std::forward<Args>(args)..., &t);
+  return t;
 }
 
 }

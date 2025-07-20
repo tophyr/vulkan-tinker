@@ -10,7 +10,7 @@ ColumnLimit: 120
 
 AllowShortIfStatementsOnASingleLine: false
 AllowShortLoopsOnASingleLine: false
-AllowShortFunctionsOnASingleLine: None
+AllowShortFunctionsOnASingleLine: Empty
 
 PointerAlignment: Right
 
