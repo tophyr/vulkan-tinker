@@ -1,6 +1,8 @@
 #pragma once
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <iterator>
 #include <set>
 #include <span>
@@ -349,25 +351,77 @@ struct ImageView : raii::UniqueHandle<ImageView, VkImageView> {
   VkDevice device_;
 };
 
+struct ShaderModule : raii::UniqueHandle<ShaderModule, VkShaderModule> {
+  ShaderModule(VkDevice device, std::filesystem::path shaderPath)
+      : ShaderModule{device, std::span<uint8_t const>{[&] {
+                       std::ifstream in{shaderPath, std::ios::ate | std::ios::binary};
+                       in.exceptions(std::ios::failbit | std::ios::badbit);
+                       std::vector<uint8_t> code(in.tellg());
+                       in.seekg(0, std::ios::beg);
+                       in.read(reinterpret_cast<char*>(code.data()), code.size());
+                       return code;
+                     }()}} {}
+  ShaderModule(VkDevice device, std::span<uint8_t const> const& code)
+      : ShaderModule{[&] {
+          VkShaderModuleCreateInfo createInfo{
+              .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+              .codeSize = static_cast<uint32_t>(code.size()),
+              .pCode = reinterpret_cast<uint32_t const*>(code.data()),
+          };
+
+          VkShaderModule shaderModule;
+          if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
+            throw std::runtime_error{"failed to create shader module"};
+          }
+          return ShaderModule{device, shaderModule};
+        }()} {}
+
+ private:
+  ShaderModule(VkDevice device, VkShaderModule shaderModule) : UniqueHandle{shaderModule}, device_{device} {}
+
+  friend UniqueHandle<ShaderModule, VkShaderModule>;
+  void destroy(VkShaderModule shaderModule) {
+    vkDestroyShaderModule(device_, shaderModule, nullptr);
+  }
+
+  VkDevice device_;
+};
+
 struct Pipeline : raii::UniqueHandle<Pipeline, VkPipeline> {
-  Pipeline(VkDevice device) : Pipeline {
-    [&] {
-      std::vector<VkGraphicsPipelineCreateInfo> createInfos;
+  Pipeline(VkDevice device, ShaderModule const& vertexShader, ShaderModule const& fragmentShader)
+      : Pipeline{[&] {
+          std::vector<VkPipelineShaderStageCreateInfo> stages{
+              VkPipelineShaderStageCreateInfo{
+                  .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                  .stage = VK_SHADER_STAGE_VERTEX_BIT,
+                  .module = vertexShader,
+                  .pName = "main",
+              },
+              VkPipelineShaderStageCreateInfo{
+                  .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                  .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+                  .module = fragmentShader,
+                  .pName = "main",
+              },
+          };
 
-      VkPipeline pipeline;
-      if (vkCreateGraphicsPipelines(
-              device, {},
-              static_cast<uint32_t>(createInfos.size()),
-              createInfos.data(),
-              nullptr,
-              &pipeline) != VK_SUCCESS) {
-        throw std::runtime_error{"failed to create graphics pipelines"};
-      }
-      return Pipeline{device, pipeline};
-    }()
-  } { }
+          std::vector<VkGraphicsPipelineCreateInfo> createInfos;
+          createInfos.emplace_back(VkGraphicsPipelineCreateInfo{
+              .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+              .stageCount = static_cast<uint32_t>(stages.size()),
+              .pStages = stages.data(),
+          });
 
-private:
+          VkPipeline pipeline;
+          if (vkCreateGraphicsPipelines(
+                  device, {}, static_cast<uint32_t>(createInfos.size()), createInfos.data(), nullptr, &pipeline) !=
+              VK_SUCCESS) {
+            throw std::runtime_error{"failed to create graphics pipelines"};
+          }
+          return Pipeline{device, pipeline};
+        }()} {}
+
+ private:
   Pipeline(VkDevice device, VkPipeline pipeline) : UniqueHandle{pipeline}, device_{device} {}
 
   friend UniqueHandle<Pipeline, VkPipeline>;
