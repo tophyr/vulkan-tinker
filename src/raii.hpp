@@ -81,17 +81,22 @@ std::optional<std::remove_cvref_t<decltype(*std::declval<Collection>().begin())>
   return std::nullopt;
 }
 
-template <typename Collection>
-auto unique_vector(Collection const& collection) {
-  using T = std::remove_cvref_t<decltype(*std::declval<Collection>().begin())>;
-  auto const& uniqued = [&] {
-    if constexpr (std::is_same_v<Collection, std::set<T>> || std::is_same_v<Collection, std::unordered_set<T>>) {
-      return collection;
-    } else {
-      return std::set<T>{collection.cbegin(), collection.cend()};
-    }
-  }();
-  return std::vector<T>{uniqued.cbegin(), uniqued.cend()};
+template <typename Collection> auto vector(Collection const& collection) {
+  using T = std::remove_cvref_t<decltype(*std::begin(std::declval<Collection>()))>;
+  if constexpr (std::is_same_v<Collection, std::vector<T>>) {
+    return collection;
+  } else {
+    return std::vector<T>{std::begin(collection), std::end(collection)};
+  }
+}
+
+template <typename Collection> auto uniqued(Collection const& collection) {
+  using T = std::remove_cvref_t<decltype(*std::begin(std::declval<Collection>()))>;
+  if constexpr (std::is_same_v<Collection, std::set<T>> || std::is_same_v<Collection, std::unordered_set<T>>) {
+    return collection;
+  } else {
+    return std::set<T>{std::begin(collection), std::end(collection)};
+  }
 }
 
 }  // namespace optalg

@@ -241,7 +241,7 @@ struct Swapchain : raii::UniqueHandle<Swapchain, VkSwapchainKHR> {
           }();
           auto caps = getPhysicalDeviceSurfaceCapabilitiesKHR(device.physicalDevice(), surface);
           auto queueFamilies =
-              optalg::unique_vector(std::set{device.graphicsQueue().familyIndex, device.presentQueue().familyIndex});
+              optalg::vector(std::set{device.graphicsQueue().familyIndex, device.presentQueue().familyIndex});
 
           VkSwapchainCreateInfoKHR createInfo{
               .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
@@ -311,6 +311,42 @@ struct Swapchain : raii::UniqueHandle<Swapchain, VkSwapchainKHR> {
   std::vector<VkImage> images_;
   VkFormat format_;
   VkExtent2D extent_;
+};
+
+struct ImageView : raii::UniqueHandle<ImageView, VkImageView> {
+  ImageView(VkDevice device, VkImage image, VkFormat format)
+      : ImageView{[&] {
+          VkImageViewCreateInfo createInfo{
+              .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+              .image = image,
+              .viewType = VK_IMAGE_VIEW_TYPE_2D,
+              .format = format,
+              .subresourceRange =
+                  {
+                      .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                      .baseMipLevel = 0,
+                      .levelCount = 1,
+                      .baseArrayLayer = 0,
+                      .layerCount = 1,
+                  },
+          };
+
+          VkImageView imageView;
+          if (vkCreateImageView(device, &createInfo, nullptr, &imageView) != VK_SUCCESS) {
+            throw std::runtime_error{"failed to create image view"};
+          }
+          return ImageView{device, imageView};
+        }()} {}
+
+ private:
+  ImageView(VkDevice device, VkImageView imageView) : UniqueHandle{imageView}, device_{device} {}
+
+  friend UniqueHandle<ImageView, VkImageView>;
+  void destroy(VkImageView imageView) {
+    vkDestroyImageView(device_, imageView, nullptr);
+  }
+
+  VkDevice device_;
 };
 
 }  // namespace vk

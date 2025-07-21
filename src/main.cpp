@@ -1,4 +1,5 @@
 ﻿#include <array>
+#include <ranges>
 
 #include "glfw.hpp"
 #include "vulkan.hpp"
@@ -11,11 +12,13 @@ int main() {
 
   {
     glfw::Window window{1920, 1080, kName};
-    vk::Instance instance {kName, std::array{"VK_LAYER_KHRONOS_validation"}};
+    vk::Instance instance{kName, std::array{"VK_LAYER_KHRONOS_validation"}};
     vk::Surface surface{instance, window};
     vk::Device device{instance, surface, std::array{VK_KHR_SWAPCHAIN_EXTENSION_NAME}};
     vk::Swapchain swapchain{window, device, surface};
-
+    auto imageViews = optalg::vector(swapchain.images() | std::views::transform([&](auto const& img) {
+                                       return vk::ImageView{device, img, swapchain.format()};
+                                     }));
 
     while (!glfwWindowShouldClose(window)) {
       glfwPollEvents();
