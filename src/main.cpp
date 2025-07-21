@@ -3,10 +3,7 @@
 #include "glfw.hpp"
 #include "vulkan.hpp"
 
-using namespace std::literals;
-
 constexpr char const* kName{"Vulkan Tinker"};
-constexpr std::array kInstanceLayers{"VK_LAYER_KHRONOS_validation"};
 
 int main() {
   glfw::GlobalState glfwState;
@@ -14,11 +11,11 @@ int main() {
 
   {
     glfw::Window window{1920, 1080, kName};
-    vk::Instance instance{kName, kInstanceLayers};
+    vk::Instance instance {kName, std::array{"VK_LAYER_KHRONOS_validation"}};
     vk::Surface surface{instance, window};
-    vk::Device device{instance, surface};
-    auto gfxQ = device.graphicsQueue();
-    auto presQ = device.presentQueue();
+    vk::Device device{instance, surface, std::array{VK_KHR_SWAPCHAIN_EXTENSION_NAME}};
+    vk::Swapchain swapchain{window, device, surface};
+
 
     while (!glfwWindowShouldClose(window)) {
       glfwPollEvents();

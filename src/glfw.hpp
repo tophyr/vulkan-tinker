@@ -15,6 +15,12 @@ inline std::span<char const*> getRequiredInstanceExtensions() {
   return {exts, count};
 }
 
+inline std::tuple<int, int> getFramebufferSize(GLFWwindow* window) {
+  int w, h;
+  glfwGetFramebufferSize(window, &w, &h);
+  return {w, h};
+}
+
 struct GlobalState {
   GlobalState() {
     glfwInit();

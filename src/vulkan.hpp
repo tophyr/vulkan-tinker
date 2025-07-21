@@ -23,6 +23,10 @@ inline auto enumeratePhysicalDevices(VkInstance instance) {
   return raii::VecFetcher<VkPhysicalDevice, vkEnumeratePhysicalDevices>(instance);
 }
 
+inline auto enumerateDeviceExtensionProperties(VkPhysicalDevice device) {
+  return raii::VecFetcher<VkExtensionProperties, vkEnumerateDeviceExtensionProperties>(device, nullptr);
+}
+
 inline auto getPhysicalDeviceProperties(VkPhysicalDevice device) {
   return raii::Fetcher<VkPhysicalDeviceProperties, vkGetPhysicalDeviceProperties>(device);
 }
@@ -44,16 +48,32 @@ inline auto getDeviceQueue(VkDevice device, uint32_t queueIndex) {
   return raii::Fetcher<VkQueue, vkGetDeviceQueue>(device, queueIndex, 0);
 }
 
+inline auto getPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice device, VkSurfaceKHR surface) {
+  return raii::Fetcher<VkSurfaceCapabilitiesKHR, vkGetPhysicalDeviceSurfaceCapabilitiesKHR>(device, surface);
+}
+
+inline auto getPhysicalDeviceSurfaceFormatsKHR(VkPhysicalDevice device, VkSurfaceKHR surface) {
+  return raii::VecFetcher<VkSurfaceFormatKHR, vkGetPhysicalDeviceSurfaceFormatsKHR>(device, surface);
+}
+
+inline auto getPhysicalDeviceSurfacePresentModesKHR(VkPhysicalDevice device, VkSurfaceKHR surface) {
+  return raii::VecFetcher<VkPresentModeKHR, vkGetPhysicalDeviceSurfacePresentModesKHR>(device, surface);
+}
+
+inline auto getSwapchainImagesKHR(VkDevice device, VkSwapchainKHR swapchain) {
+  return raii::VecFetcher<VkImage, vkGetSwapchainImagesKHR>(device, swapchain);
+}
+
 struct Instance : raii::UniqueHandle<Instance, VkInstance> {
   Instance(char const* name, std::span<char const* const> requiredLayers = {})
       : UniqueHandle{[&] {
-          auto availableLayers = enumerateInstanceLayerProperties();
-          for (auto const& layerName : requiredLayers) {
-            std::string_view svLayerName{layerName};
-            if (!std::ranges::any_of(
-                    availableLayers, [&](auto const& layer) { return svLayerName == layer.layerName; })) {
-              throw std::runtime_error{std::string{layerName} + " not available"};
-            }
+          if (!std::ranges::all_of(
+                  requiredLayers, [availableLayers = enumerateInstanceLayerProperties()](auto const& req) {
+                    return std::ranges::any_of(availableLayers, [svReq = std::string_view{req}](auto const& layer) {
+                      return svReq == layer.layerName;
+                    });
+                  })) {
+            throw std::runtime_error{"not all required layers available"};
           }
 
           VkApplicationInfo appInfo{
@@ -88,11 +108,32 @@ struct Instance : raii::UniqueHandle<Instance, VkInstance> {
   }
 };
 
+struct Queue {
+  Queue(VkDevice device, uint32_t familyIndex) : queue{getDeviceQueue(device, familyIndex)}, familyIndex{familyIndex} {}
+  VkQueue const queue;
+  uint32_t const familyIndex;
+};
+
 struct Device : raii::UniqueHandle<Device, VkDevice> {
-  Device(VkInstance instance, VkSurfaceKHR surface)
+  Device(VkInstance instance, VkSurfaceKHR surface, std::span<char const* const> requiredExtensions = {})
       : Device{[&] {
           auto const& [physDevice, gfxQueueIdx, presentQueueIdx] = [&] {
             for (auto const& physDevice : enumeratePhysicalDevices(instance)) {
+              if (!std::ranges::all_of(
+                      requiredExtensions,
+                      [availableExtensions = enumerateDeviceExtensionProperties(physDevice)](auto const& req) {
+                        return std::ranges::any_of(
+                            availableExtensions,
+                            [svReq = std::string_view{req}](auto const& ext) { return svReq == ext.extensionName; });
+                      })) {
+                continue;
+              }
+
+              if (getPhysicalDeviceSurfacePresentModesKHR(physDevice, surface).empty() ||
+                  getPhysicalDeviceSurfaceFormatsKHR(physDevice, surface).empty()) {
+                continue;
+              }
+
               auto queueFamilies = getPhysicalDeviceQueueFamilyProperties(physDevice);
               auto gfxQueue = std::ranges::find_if(
                   queueFamilies, [](auto const& qf) { return qf.queueFlags & VK_QUEUE_GRAPHICS_BIT; });
@@ -126,6 +167,8 @@ struct Device : raii::UniqueHandle<Device, VkDevice> {
               .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
               .queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size()),
               .pQueueCreateInfos = queueCreateInfos.data(),
+              .enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size()),
+              .ppEnabledExtensionNames = requiredExtensions.data(),
               .pEnabledFeatures = &deviceFeatures,
           };
 
@@ -134,14 +177,18 @@ struct Device : raii::UniqueHandle<Device, VkDevice> {
             throw std::runtime_error{"failed to create logical device"};
           }
 
-          return Device{device, getDeviceQueue(device, gfxQueueIdx), getDeviceQueue(device, presentQueueIdx)};
+          return Device{device, physDevice, Queue{device, gfxQueueIdx}, Queue{device, presentQueueIdx}};
         }()} {}
 
-  VkQueue graphicsQueue() const {
+  VkPhysicalDevice physicalDevice() const {
+    return physDevice_;
+  }
+
+  Queue graphicsQueue() const {
     return graphicsQueue_;
   }
 
-  VkQueue presentQueue() const {
+  Queue presentQueue() const {
     return presentQueue_;
   }
 
@@ -151,11 +198,12 @@ struct Device : raii::UniqueHandle<Device, VkDevice> {
     vkDestroyDevice(device, nullptr);
   }
 
-  explicit Device(VkDevice device, VkQueue graphicsQueue, VkQueue presentQueue)
-      : UniqueHandle{device}, graphicsQueue_{graphicsQueue}, presentQueue_{presentQueue} {}
+  explicit Device(VkDevice device, VkPhysicalDevice physDevice, Queue graphicsQueue, Queue presentQueue)
+      : UniqueHandle{device}, physDevice_{physDevice}, graphicsQueue_{graphicsQueue}, presentQueue_{presentQueue} {}
 
-  VkQueue graphicsQueue_;
-  VkQueue presentQueue_;
+  VkPhysicalDevice physDevice_;
+  Queue graphicsQueue_;
+  Queue presentQueue_;
 };
 
 struct Surface : raii::UniqueHandle<Surface, VkSurfaceKHR> {
@@ -176,6 +224,93 @@ struct Surface : raii::UniqueHandle<Surface, VkSurfaceKHR> {
   }
 
   VkInstance instance_;
+};
+
+struct Swapchain : raii::UniqueHandle<Swapchain, VkSwapchainKHR> {
+  Swapchain(GLFWwindow* window, Device const& device, VkSurfaceKHR surface)
+      : Swapchain{[&] {
+          auto surfaceFormat = [&] {
+            auto formats = getPhysicalDeviceSurfaceFormatsKHR(device.physicalDevice(), surface);
+            return optalg::find_if(
+                       formats,
+                       [](auto const& format) {
+                         return format.format == VK_FORMAT_B8G8R8A8_SRGB &&
+                                format.colorSpace == VK_COLORSPACE_SRGB_NONLINEAR_KHR;
+                       })
+                .value_or(formats.front());
+          }();
+          auto caps = getPhysicalDeviceSurfaceCapabilitiesKHR(device.physicalDevice(), surface);
+          auto queueFamilies =
+              optalg::unique_vector(std::set{device.graphicsQueue().familyIndex, device.presentQueue().familyIndex});
+
+          VkSwapchainCreateInfoKHR createInfo{
+              .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+              .surface = surface,
+              .minImageCount = (caps.minImageCount == caps.maxImageCount) ? caps.maxImageCount : caps.minImageCount + 1,
+              .imageFormat = surfaceFormat.format,
+              .imageColorSpace = surfaceFormat.colorSpace,
+              .imageExtent =
+                  [&] {
+                    if (caps.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+                      return caps.currentExtent;
+                    } else {
+                      auto const& [w, h] = glfw::getFramebufferSize(window);
+                      return VkExtent2D{
+                          std::clamp(static_cast<uint32_t>(w), caps.minImageExtent.width, caps.maxImageExtent.width),
+                          std::clamp(static_cast<uint32_t>(h), caps.minImageExtent.height, caps.maxImageExtent.height)};
+                    }
+                  }(),
+              .imageArrayLayers = 1,
+              .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+              .imageSharingMode = queueFamilies.size() > 1 ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE,
+              .queueFamilyIndexCount = queueFamilies.size() > 1 ? static_cast<uint32_t>(queueFamilies.size()) : 0,
+              .pQueueFamilyIndices = queueFamilies.size() > 1 ? queueFamilies.data() : nullptr,
+              .preTransform = caps.currentTransform,
+              .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+              .presentMode = optalg::find_if(
+                                 getPhysicalDeviceSurfacePresentModesKHR(device.physicalDevice(), surface),
+                                 [](auto const& mode) { return mode == VK_PRESENT_MODE_MAILBOX_KHR; })
+                                 .value_or(VK_PRESENT_MODE_FIFO_KHR),
+              .clipped = true,
+          };
+
+          VkSwapchainKHR swapchain;
+          if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapchain) != VK_SUCCESS) {
+            throw std::runtime_error{"failed to create swapchain"};
+          }
+          return Swapchain{
+              device,
+              swapchain,
+              getSwapchainImagesKHR(device, swapchain),
+              createInfo.imageFormat,
+              createInfo.imageExtent};
+        }()} {}
+
+  std::vector<VkImage> const& images() const {
+    return images_;
+  }
+
+  VkFormat format() const {
+    return format_;
+  }
+
+  VkExtent2D extent() const {
+    return extent_;
+  }
+
+ private:
+  Swapchain(VkDevice device, VkSwapchainKHR swapchain, std::vector<VkImage> images, VkFormat format, VkExtent2D extent)
+      : UniqueHandle{swapchain}, device_{device}, images_{std::move(images)}, format_{format}, extent_{extent} {}
+
+  friend UniqueHandle<Swapchain, VkSwapchainKHR>;
+  void destroy(VkSwapchainKHR swapchain) {
+    vkDestroySwapchainKHR(device_, swapchain, nullptr);
+  }
+
+  VkDevice device_;
+  std::vector<VkImage> images_;
+  VkFormat format_;
+  VkExtent2D extent_;
 };
 
 }  // namespace vk
