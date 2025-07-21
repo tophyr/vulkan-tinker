@@ -349,4 +349,33 @@ struct ImageView : raii::UniqueHandle<ImageView, VkImageView> {
   VkDevice device_;
 };
 
+struct Pipeline : raii::UniqueHandle<Pipeline, VkPipeline> {
+  Pipeline(VkDevice device) : Pipeline {
+    [&] {
+      std::vector<VkGraphicsPipelineCreateInfo> createInfos;
+
+      VkPipeline pipeline;
+      if (vkCreateGraphicsPipelines(
+              device, {},
+              static_cast<uint32_t>(createInfos.size()),
+              createInfos.data(),
+              nullptr,
+              &pipeline) != VK_SUCCESS) {
+        throw std::runtime_error{"failed to create graphics pipelines"};
+      }
+      return Pipeline{device, pipeline};
+    }()
+  } { }
+
+private:
+  Pipeline(VkDevice device, VkPipeline pipeline) : UniqueHandle{pipeline}, device_{device} {}
+
+  friend UniqueHandle<Pipeline, VkPipeline>;
+  void destroy(VkPipeline pipeline) {
+    vkDestroyPipeline(device_, pipeline, nullptr);
+  }
+
+  VkDevice device_;
+};
+
 }  // namespace vk
