@@ -24,4 +24,20 @@ if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET vulkan-tinker PROPERTY CXX_STANDARD 20)
 endif()
 
-# TODO: Add tests and install targets if needed.
+find_program(GLSLC_EXECUTABLE glslc REQUIRED)
+
+function(compile_shader SRC)
+	get_filename_component(SHADER_NAME ${SRC} NAME)
+	set(SPV "${CMAKE_CURRENT_BINARY_DIR}/${SHADER_NAME}.spv")
+	add_custom_command(
+		OUTPUT ${SPV}
+		COMMAND ${GLSLC_EXECUTABLE} -o ${SPV} ${SRC}
+		DEPENDS ${SRC}
+		COMMENT "Compiling shader ${SRC}"
+	)
+	set(${ARGV1} ${SPV} PARENT_SCOPE)
+endfunction()
+
+compile_shader(${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/main.vert MAIN_VERT)
+compile_shader(${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/main.frag MAIN_FRAG)
+add_custom_target(shaders ALL DEPENDS ${MAIN_VERT} ${MAIN_FRAG})
