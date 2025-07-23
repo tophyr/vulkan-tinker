@@ -6,7 +6,6 @@
 #include <type_traits>
 #include <vector>
 
-
 namespace raii {
 
 template <typename CRTP, typename T, T kNil = T{}> struct UniqueHandle {
@@ -51,6 +50,29 @@ template <typename CRTP, typename T, T kNil = T{}> struct UniqueHandle {
   }
 
   T t_{kNil};
+};
+
+template <typename T, auto Dtor, typename Parent, typename AllocationCallbacks = std::nullptr_t, T kNil = T{}>
+struct ParentedUniqueHandle : UniqueHandle<ParentedUniqueHandle<T, Dtor, Parent, AllocationCallbacks, kNil>, T> {
+  ParentedUniqueHandle(Parent p, T t, AllocationCallbacks ac) : ParentedUniqueHandle{std::tuple{p, t, ac}} {}
+  ParentedUniqueHandle(std::tuple<Parent, T, AllocationCallbacks> tup)
+      : UniqueHandle<ParentedUniqueHandle<T, Dtor, Parent, AllocationCallbacks, kNil>, T>{std::get<1>(tup)},
+        parent_{std::get<0>(tup)},
+        callbacks_{std::get<2>(tup)} {}
+
+ protected:
+  Parent parent() const {
+    return parent_;
+  }
+
+ private:
+  friend UniqueHandle<ParentedUniqueHandle<T, Dtor, Parent, AllocationCallbacks, kNil>, T>;
+  void destroy(T t) {
+    Dtor(parent_, t, callbacks_);
+  }
+
+  Parent parent_;
+  AllocationCallbacks callbacks_;
 };
 
 template <typename Elem, auto Func, typename... Args> std::vector<Elem> VecFetcher(Args&&... args) {

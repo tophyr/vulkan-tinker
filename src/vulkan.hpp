@@ -208,27 +208,18 @@ struct Device : raii::UniqueHandle<Device, VkDevice> {
   Queue presentQueue_;
 };
 
-struct Surface : raii::UniqueHandle<Surface, VkSurfaceKHR> {
+struct Surface : raii::ParentedUniqueHandle<VkSurfaceKHR, vkDestroySurfaceKHR, VkInstance> {
   Surface(VkInstance instance, GLFWwindow* window)
-      : UniqueHandle{[&] {
+      : ParentedUniqueHandle{[&] {
           VkSurfaceKHR surface{};
           if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
             throw std::runtime_error{"failed to create window surface"};
           }
-          return surface;
-        }()},
-        instance_{instance} {}
-
- private:
-  friend UniqueHandle<Surface, VkSurfaceKHR>;
-  void destroy(VkSurfaceKHR surface) {
-    vkDestroySurfaceKHR(instance_, surface, nullptr);
-  }
-
-  VkInstance instance_;
+          return std::tuple{instance, surface, nullptr};
+        }()} {}
 };
 
-struct Swapchain : raii::UniqueHandle<Swapchain, VkSwapchainKHR> {
+struct Swapchain : raii::ParentedUniqueHandle<VkSwapchainKHR, vkDestroySwapchainKHR, VkDevice> {
   Swapchain(GLFWwindow* window, Device const& device, VkSurfaceKHR surface)
       : Swapchain{[&] {
           auto surfaceFormat = [&] {
@@ -302,22 +293,19 @@ struct Swapchain : raii::UniqueHandle<Swapchain, VkSwapchainKHR> {
 
  private:
   Swapchain(VkDevice device, VkSwapchainKHR swapchain, std::vector<VkImage> images, VkFormat format, VkExtent2D extent)
-      : UniqueHandle{swapchain}, device_{device}, images_{std::move(images)}, format_{format}, extent_{extent} {}
+      : ParentedUniqueHandle{device, swapchain, nullptr},
+        images_{std::move(images)},
+        format_{format},
+        extent_{extent} {}
 
-  friend UniqueHandle<Swapchain, VkSwapchainKHR>;
-  void destroy(VkSwapchainKHR swapchain) {
-    vkDestroySwapchainKHR(device_, swapchain, nullptr);
-  }
-
-  VkDevice device_;
   std::vector<VkImage> images_;
   VkFormat format_;
   VkExtent2D extent_;
 };
 
-struct ImageView : raii::UniqueHandle<ImageView, VkImageView> {
+struct ImageView : raii::ParentedUniqueHandle<VkImageView, vkDestroyImageView, VkDevice> {
   ImageView(VkDevice device, VkImage image, VkFormat format)
-      : ImageView{[&] {
+      : ParentedUniqueHandle{[&] {
           VkImageViewCreateInfo createInfo{
               .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
               .image = image,
@@ -337,21 +325,11 @@ struct ImageView : raii::UniqueHandle<ImageView, VkImageView> {
           if (vkCreateImageView(device, &createInfo, nullptr, &imageView) != VK_SUCCESS) {
             throw std::runtime_error{"failed to create image view"};
           }
-          return ImageView{device, imageView};
+          return std::tuple{device, imageView, nullptr};
         }()} {}
-
- private:
-  ImageView(VkDevice device, VkImageView imageView) : UniqueHandle{imageView}, device_{device} {}
-
-  friend UniqueHandle<ImageView, VkImageView>;
-  void destroy(VkImageView imageView) {
-    vkDestroyImageView(device_, imageView, nullptr);
-  }
-
-  VkDevice device_;
 };
 
-struct ShaderModule : raii::UniqueHandle<ShaderModule, VkShaderModule> {
+struct ShaderModule : raii::ParentedUniqueHandle<VkShaderModule, vkDestroyShaderModule, VkDevice> {
   ShaderModule(VkDevice device, std::filesystem::path shaderPath)
       : ShaderModule{device, std::span<uint8_t const>{[&] {
                        std::ifstream in{shaderPath, std::ios::ate | std::ios::binary};
@@ -362,7 +340,7 @@ struct ShaderModule : raii::UniqueHandle<ShaderModule, VkShaderModule> {
                        return code;
                      }()}} {}
   ShaderModule(VkDevice device, std::span<uint8_t const> const& code)
-      : ShaderModule{[&] {
+      : ParentedUniqueHandle{[&] {
           VkShaderModuleCreateInfo createInfo{
               .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
               .codeSize = static_cast<uint32_t>(code.size()),
@@ -373,23 +351,13 @@ struct ShaderModule : raii::UniqueHandle<ShaderModule, VkShaderModule> {
           if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
             throw std::runtime_error{"failed to create shader module"};
           }
-          return ShaderModule{device, shaderModule};
+          return std::tuple{device, shaderModule, nullptr};
         }()} {}
-
- private:
-  ShaderModule(VkDevice device, VkShaderModule shaderModule) : UniqueHandle{shaderModule}, device_{device} {}
-
-  friend UniqueHandle<ShaderModule, VkShaderModule>;
-  void destroy(VkShaderModule shaderModule) {
-    vkDestroyShaderModule(device_, shaderModule, nullptr);
-  }
-
-  VkDevice device_;
 };
 
-struct PipelineLayout : raii::UniqueHandle<PipelineLayout, VkPipelineLayout> {
+struct PipelineLayout : raii::ParentedUniqueHandle<VkPipelineLayout, vkDestroyPipelineLayout, VkDevice> {
   explicit PipelineLayout(VkDevice device)
-      : PipelineLayout{[&] {
+      : ParentedUniqueHandle{[&] {
           VkPipelineLayoutCreateInfo createInfo{
               .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
           };
@@ -398,23 +366,13 @@ struct PipelineLayout : raii::UniqueHandle<PipelineLayout, VkPipelineLayout> {
           if (vkCreatePipelineLayout(device, &createInfo, nullptr, &layout) != VK_SUCCESS) {
             throw std::runtime_error{"failed to create pipeline layout"};
           }
-          return PipelineLayout{device, layout};
+          return std::tuple{device, layout, nullptr};
         }()} {}
-
- private:
-  PipelineLayout(VkDevice device, VkPipelineLayout layout) : UniqueHandle{layout}, device_{device} {}
-
-  friend UniqueHandle<PipelineLayout, VkPipelineLayout>;
-  void destroy(VkPipelineLayout layout) {
-    vkDestroyPipelineLayout(device_, layout, nullptr);
-  }
-
-  VkDevice device_;
 };
 
-struct RenderPass : raii::UniqueHandle<RenderPass, VkRenderPass> {
+struct RenderPass : raii::ParentedUniqueHandle<VkRenderPass, vkDestroyRenderPass, VkDevice> {
   explicit RenderPass(VkDevice device, VkFormat swapchainFormat)
-      : RenderPass{[&] {
+      : ParentedUniqueHandle{[&] {
           std::array attachments{VkAttachmentDescription{
               .format = swapchainFormat,
               .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -447,28 +405,18 @@ struct RenderPass : raii::UniqueHandle<RenderPass, VkRenderPass> {
           if (vkCreateRenderPass(device, &createInfo, nullptr, &renderPass) != VK_SUCCESS) {
             throw std::runtime_error{"failed to create render pass"};
           }
-          return RenderPass{device, renderPass};
+          return std::tuple{device, renderPass, nullptr};
         }()} {}
-
- private:
-  RenderPass(VkDevice device, VkRenderPass renderPass) : UniqueHandle{renderPass}, device_{device} {}
-
-  friend UniqueHandle<RenderPass, VkRenderPass>;
-  void destroy(VkRenderPass renderPass) {
-    vkDestroyRenderPass(device_, renderPass, nullptr);
-  }
-
-  VkDevice device_;
 };
 
-struct Pipeline : raii::UniqueHandle<Pipeline, VkPipeline> {
+struct Pipeline : raii::ParentedUniqueHandle<VkPipeline, vkDestroyPipeline, VkDevice> {
   Pipeline(
       VkDevice device,
       ShaderModule const& vertexShader,
       ShaderModule const& fragmentShader,
       VkPipelineLayout layout,
       VkRenderPass renderPass)
-      : Pipeline{[&] {
+      : ParentedUniqueHandle{[&] {
           std::vector<VkPipelineShaderStageCreateInfo> stages{
               VkPipelineShaderStageCreateInfo{
                   .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -551,23 +499,13 @@ struct Pipeline : raii::UniqueHandle<Pipeline, VkPipeline> {
               VK_SUCCESS) {
             throw std::runtime_error{"failed to create graphics pipelines"};
           }
-          return Pipeline{device, pipeline};
+          return std::tuple{device, pipeline, nullptr};
         }()} {}
-
- private:
-  Pipeline(VkDevice device, VkPipeline pipeline) : UniqueHandle{pipeline}, device_{device} {}
-
-  friend UniqueHandle<Pipeline, VkPipeline>;
-  void destroy(VkPipeline pipeline) {
-    vkDestroyPipeline(device_, pipeline, nullptr);
-  }
-
-  VkDevice device_;
 };
 
-struct Framebuffer : raii::UniqueHandle<Framebuffer, VkFramebuffer> {
+struct Framebuffer : raii::ParentedUniqueHandle<VkFramebuffer, vkDestroyFramebuffer, VkDevice> {
   Framebuffer(VkDevice device, std::span<VkImageView const> attachments, VkRenderPass renderPass, VkExtent2D extent)
-      : Framebuffer{[&] {
+      : ParentedUniqueHandle{[&] {
           VkFramebufferCreateInfo createInfo{
               .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
               .renderPass = renderPass,
@@ -582,18 +520,8 @@ struct Framebuffer : raii::UniqueHandle<Framebuffer, VkFramebuffer> {
           if (vkCreateFramebuffer(device, &createInfo, nullptr, &framebuffer) != VK_SUCCESS) {
             throw std::runtime_error{"failed to create framebuffer"};
           }
-          return Framebuffer{device, framebuffer};
+          return std::tuple{device, framebuffer, nullptr};
         }()} {}
-
- private:
-  Framebuffer(VkDevice device, VkFramebuffer framebuffer) : UniqueHandle{framebuffer}, device_{device} {}
-
-  friend UniqueHandle<Framebuffer, VkFramebuffer>;
-  void destroy(VkFramebuffer framebuffer) {
-    vkDestroyFramebuffer(device_, framebuffer, nullptr);
-  }
-
-  VkDevice device_;
 };
 
 }  // namespace vk
