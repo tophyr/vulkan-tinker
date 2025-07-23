@@ -33,6 +33,10 @@ template <typename CRTP, typename T, T kNil = T{}> struct UniqueHandle {
     return t_;
   }
 
+  T const* ptr() const {
+    return &t_;
+  }
+
   explicit operator bool() const {
     return *this != kNil;
   }

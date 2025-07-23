@@ -66,6 +66,12 @@ inline auto getSwapchainImagesKHR(VkDevice device, VkSwapchainKHR swapchain) {
   return raii::VecFetcher<VkImage, vkGetSwapchainImagesKHR>(device, swapchain);
 }
 
+inline auto acquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, VkSemaphore semaphore) {
+  uint32_t index{};
+  vkAcquireNextImageKHR(device, swapchain, std::numeric_limits<uint64_t>::max(), semaphore, {}, &index);
+  return index;
+}
+
 struct Instance : raii::UniqueHandle<Instance, VkInstance> {
   Instance(char const* name, std::span<char const* const> requiredLayers = {})
       : UniqueHandle{[&] {
@@ -392,6 +398,14 @@ struct RenderPass : raii::ParentedUniqueHandle<VkRenderPass, vkDestroyRenderPass
               .colorAttachmentCount = static_cast<uint32_t>(attachRefs.size()),
               .pColorAttachments = attachRefs.data(),
           }};
+          std::array subpassDeps{VkSubpassDependency{
+              .srcSubpass = VK_SUBPASS_EXTERNAL,
+              .dstSubpass = 0,
+              .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+              .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+              .srcAccessMask = 0,
+              .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+          }};
 
           VkRenderPassCreateInfo createInfo{
               .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
@@ -399,6 +413,8 @@ struct RenderPass : raii::ParentedUniqueHandle<VkRenderPass, vkDestroyRenderPass
               .pAttachments = attachments.data(),
               .subpassCount = static_cast<uint32_t>(subpasses.size()),
               .pSubpasses = subpasses.data(),
+              .dependencyCount = static_cast<uint32_t>(subpassDeps.size()),
+              .pDependencies = subpassDeps.data(),
           };
 
           VkRenderPass renderPass{};
@@ -470,7 +486,10 @@ struct Pipeline : raii::ParentedUniqueHandle<VkPipeline, vkDestroyPipeline, VkDe
               .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
           };
 
-          std::array colorBlendAttachments{VkPipelineColorBlendAttachmentState{}};
+          std::array colorBlendAttachments{VkPipelineColorBlendAttachmentState{
+              .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
+                                VK_COLOR_COMPONENT_A_BIT,
+          }};
           VkPipelineColorBlendStateCreateInfo colorBlendStateCreateInfo{
               .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
               .attachmentCount = static_cast<uint32_t>(colorBlendAttachments.size()),
@@ -525,7 +544,7 @@ struct Framebuffer : raii::ParentedUniqueHandle<VkFramebuffer, vkDestroyFramebuf
 };
 
 struct CommandPool : raii::ParentedUniqueHandle<VkCommandPool, vkDestroyCommandPool, VkDevice> {
-  CommandPool(VkDevice device, int queueFamilyIndex)
+  CommandPool(VkDevice device, uint32_t queueFamilyIndex)
       : ParentedUniqueHandle{[&] {
           VkCommandPoolCreateInfo createInfo{
               .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -540,7 +559,7 @@ struct CommandPool : raii::ParentedUniqueHandle<VkCommandPool, vkDestroyCommandP
           return std::tuple{device, commandPool, nullptr};
         }()} {}
 
-  std::vector<VkCommandBuffer> allocateBuffers(size_t count) {
+  std::vector<VkCommandBuffer> allocateBuffers(uint32_t count) {
     VkCommandBufferAllocateInfo info{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .commandPool = *this,
@@ -553,6 +572,45 @@ struct CommandPool : raii::ParentedUniqueHandle<VkCommandPool, vkDestroyCommandP
       throw std::runtime_error{"failed to allocate command buffers"};
     }
     return buffers;
+  }
+};
+
+struct Semaphore : raii::ParentedUniqueHandle<VkSemaphore, vkDestroySemaphore, VkDevice> {
+  explicit Semaphore(VkDevice device)
+      : ParentedUniqueHandle{[&] {
+          VkSemaphoreCreateInfo createInfo{
+              .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+          };
+          VkSemaphore semaphore{};
+          if (vkCreateSemaphore(device, &createInfo, nullptr, &semaphore) != VK_SUCCESS) {
+            throw std::runtime_error{"failed to create semaphore"};
+          }
+          return std::tuple{device, semaphore, nullptr};
+        }()} {}
+};
+
+struct Fence : raii::ParentedUniqueHandle<VkFence, vkDestroyFence, VkDevice> {
+  explicit Fence(VkDevice device, VkFenceCreateFlags flags = 0)
+      : ParentedUniqueHandle{[&] {
+          VkFenceCreateInfo createInfo{
+              .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+              .flags = flags,
+          };
+          VkFence fence{};
+          if (vkCreateFence(device, &createInfo, nullptr, &fence) != VK_SUCCESS) {
+            throw std::runtime_error{"failed to create fence"};
+          }
+          return std::tuple{device, fence, nullptr};
+        }()} {}
+
+  void wait(uint64_t timeout = std::numeric_limits<uint64_t>::max()) {
+    std::array fences{static_cast<VkFence>(*this)};
+    vkWaitForFences(parent(), static_cast<uint32_t>(fences.size()), fences.data(), true, timeout);
+  }
+
+  void reset() {
+    std::array fences{static_cast<VkFence>(*this)};
+    vkResetFences(parent(), static_cast<uint32_t>(fences.size()), fences.data());
   }
 };
 
