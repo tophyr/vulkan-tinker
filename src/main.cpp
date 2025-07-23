@@ -27,6 +27,9 @@ int main() {
         vk::ShaderModule{device, "main.frag.spv"},
         layout,
         renderPass};
+    auto framebuffers = optalg::vector(imageViews | std::views::transform([&](auto const& iv) {
+      return vk::Framebuffer(device, std::array{static_cast<VkImageView>(iv)}, renderPass, swapchain.extent());
+    }));
 
     while (!glfwWindowShouldClose(window)) {
       glfwPollEvents();

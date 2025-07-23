@@ -524,9 +524,9 @@ struct Pipeline : raii::UniqueHandle<Pipeline, VkPipeline> {
 
           std::array colorBlendAttachments{VkPipelineColorBlendAttachmentState{}};
           VkPipelineColorBlendStateCreateInfo colorBlendStateCreateInfo{
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-            .attachmentCount = static_cast<uint32_t>(colorBlendAttachments.size()),
-            .pAttachments = colorBlendAttachments.data(),
+              .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+              .attachmentCount = static_cast<uint32_t>(colorBlendAttachments.size()),
+              .pAttachments = colorBlendAttachments.data(),
           };
 
           std::vector<VkGraphicsPipelineCreateInfo> createInfos;
@@ -560,6 +560,37 @@ struct Pipeline : raii::UniqueHandle<Pipeline, VkPipeline> {
   friend UniqueHandle<Pipeline, VkPipeline>;
   void destroy(VkPipeline pipeline) {
     vkDestroyPipeline(device_, pipeline, nullptr);
+  }
+
+  VkDevice device_;
+};
+
+struct Framebuffer : raii::UniqueHandle<Framebuffer, VkFramebuffer> {
+  Framebuffer(VkDevice device, std::span<VkImageView const> attachments, VkRenderPass renderPass, VkExtent2D extent)
+      : Framebuffer{[&] {
+          VkFramebufferCreateInfo createInfo{
+              .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+              .renderPass = renderPass,
+              .attachmentCount = static_cast<uint32_t>(attachments.size()),
+              .pAttachments = attachments.data(),
+              .width = extent.width,
+              .height = extent.height,
+              .layers = 1,  // determine from the swapchain somehow?
+          };
+
+          VkFramebuffer framebuffer{};
+          if (vkCreateFramebuffer(device, &createInfo, nullptr, &framebuffer) != VK_SUCCESS) {
+            throw std::runtime_error{"failed to create framebuffer"};
+          }
+          return Framebuffer{device, framebuffer};
+        }()} {}
+
+ private:
+  Framebuffer(VkDevice device, VkFramebuffer framebuffer) : UniqueHandle{framebuffer}, device_{device} {}
+
+  friend UniqueHandle<Framebuffer, VkFramebuffer>;
+  void destroy(VkFramebuffer framebuffer) {
+    vkDestroyFramebuffer(device_, framebuffer, nullptr);
   }
 
   VkDevice device_;
