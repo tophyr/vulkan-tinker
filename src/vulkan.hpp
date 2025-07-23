@@ -242,8 +242,8 @@ struct Swapchain : raii::UniqueHandle<Swapchain, VkSwapchainKHR> {
                 .value_or(formats.front());
           }();
           auto caps = getPhysicalDeviceSurfaceCapabilitiesKHR(device.physicalDevice(), surface);
-          auto queueFamilies =
-              optalg::vector(std::set{device.graphicsQueue().familyIndex, device.presentQueue().familyIndex});
+          auto queueFamilies = std::set{device.graphicsQueue().familyIndex, device.presentQueue().familyIndex} |
+                               optalg::to<std::vector>();
 
           VkSwapchainCreateInfoKHR createInfo{
               .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,

@@ -3,9 +3,9 @@
 #include <memory>
 #include <optional>
 #include <set>
-#include <unordered_set>
 #include <type_traits>
 #include <vector>
+
 
 namespace raii {
 
@@ -81,22 +81,21 @@ std::optional<std::remove_cvref_t<decltype(*std::declval<Collection>().begin())>
   return std::nullopt;
 }
 
-template <typename Collection> auto vector(Collection const& collection) {
-  using T = std::remove_cvref_t<decltype(*std::begin(std::declval<Collection>()))>;
-  if constexpr (std::is_same_v<Collection, std::vector<T>>) {
-    return collection;
-  } else {
-    return std::vector<T>{std::begin(collection), std::end(collection)};
+template <template <typename...> typename To> struct ToFunctor {
+  template <typename Range> auto operator()(Range&& range) {
+    using T = std::remove_cvref_t<decltype(*std::begin(std::declval<Range>()))>;
+    if constexpr (std::is_same_v<Range, To<T>>) {
+      return range;
+    } else {
+      return To<T>{std::begin(range), std::end(range)};
+    }
   }
+};
+template <template <typename...> typename To, typename Range> auto operator|(Range&& range, ToFunctor<To>&& to) {
+  return std::forward<ToFunctor<To>>(to)(std::forward<Range>(range));
 }
-
-template <typename Collection> auto uniqued(Collection const& collection) {
-  using T = std::remove_cvref_t<decltype(*std::begin(std::declval<Collection>()))>;
-  if constexpr (std::is_same_v<Collection, std::set<T>> || std::is_same_v<Collection, std::unordered_set<T>>) {
-    return collection;
-  } else {
-    return std::set<T>{std::begin(collection), std::end(collection)};
-  }
+template <template <typename...> typename To> auto to() {
+  return ToFunctor<To>{};
 }
 
 }  // namespace optalg

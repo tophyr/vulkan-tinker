@@ -16,9 +16,10 @@ int main() {
     vk::Surface surface{instance, window};
     vk::Device device{instance, surface, std::array{VK_KHR_SWAPCHAIN_EXTENSION_NAME}};
     vk::Swapchain swapchain{window, device, surface};
-    auto imageViews = optalg::vector(swapchain.images() | std::views::transform([&](auto const& img) {
-                                       return vk::ImageView{device, img, swapchain.format()};
-                                     }));
+    auto imageViews =
+        swapchain.images() |
+        std::views::transform([&](auto const& img) { return vk::ImageView{device, img, swapchain.format()}; }) |
+        optalg::to<std::vector>();
     vk::PipelineLayout layout{device};
     vk::RenderPass renderPass{device, swapchain.format()};
     vk::Pipeline pipeline{
@@ -27,9 +28,11 @@ int main() {
         vk::ShaderModule{device, "main.frag.spv"},
         layout,
         renderPass};
-    auto framebuffers = optalg::vector(imageViews | std::views::transform([&](auto const& iv) {
-      return vk::Framebuffer(device, std::array{static_cast<VkImageView>(iv)}, renderPass, swapchain.extent());
-    }));
+    auto framebuffers =
+        imageViews | std::views::transform([&](auto const& iv) {
+          return vk::Framebuffer{device, std::array{static_cast<VkImageView>(iv)}, renderPass, swapchain.extent()};
+        }) |
+        optalg::to<std::vector>();
 
     while (!glfwWindowShouldClose(window)) {
       glfwPollEvents();
