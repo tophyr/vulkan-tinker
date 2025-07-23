@@ -19,8 +19,9 @@ int main() {
     auto imageViews = optalg::vector(swapchain.images() | std::views::transform([&](auto const& img) {
                                        return vk::ImageView{device, img, swapchain.format()};
                                      }));
+    vk::PipelineLayout layout{device};
     vk::Pipeline pipeline{
-        device, vk::ShaderModule{device, "main.vert.spv"}, vk::ShaderModule{device, "main.frag.spv"}};
+        device, vk::ShaderModule{device, "main.vert.spv"}, vk::ShaderModule{device, "main.frag.spv"}, layout};
 
     while (!glfwWindowShouldClose(window)) {
       glfwPollEvents();

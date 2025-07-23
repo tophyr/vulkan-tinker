@@ -387,8 +387,34 @@ struct ShaderModule : raii::UniqueHandle<ShaderModule, VkShaderModule> {
   VkDevice device_;
 };
 
+struct PipelineLayout : raii::UniqueHandle<PipelineLayout, VkPipelineLayout> {
+  explicit PipelineLayout(VkDevice device)
+      : PipelineLayout{[&] {
+          VkPipelineLayoutCreateInfo createInfo{
+              .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+          };
+
+          VkPipelineLayout layout{};
+          if (vkCreatePipelineLayout(device, &createInfo, nullptr, &layout) != VK_SUCCESS) {
+            throw std::runtime_error{"failed to create pipeline layout"};
+          }
+          return PipelineLayout{device, layout};
+        }()} {}
+
+ private:
+  PipelineLayout(VkDevice device, VkPipelineLayout layout) : UniqueHandle{layout}, device_{device} {}
+
+  friend UniqueHandle<PipelineLayout, VkPipelineLayout>;
+  void destroy(VkPipelineLayout layout) {
+    vkDestroyPipelineLayout(device_, layout, nullptr);
+  }
+
+  VkDevice device_;
+};
+
 struct Pipeline : raii::UniqueHandle<Pipeline, VkPipeline> {
-  Pipeline(VkDevice device, ShaderModule const& vertexShader, ShaderModule const& fragmentShader)
+  Pipeline(
+      VkDevice device, ShaderModule const& vertexShader, ShaderModule const& fragmentShader, VkPipelineLayout layout)
       : Pipeline{[&] {
           std::vector<VkPipelineShaderStageCreateInfo> stages{
               VkPipelineShaderStageCreateInfo{
@@ -405,11 +431,64 @@ struct Pipeline : raii::UniqueHandle<Pipeline, VkPipeline> {
               },
           };
 
+          VkPipelineVertexInputStateCreateInfo vertexInputCreateInfo{
+              .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+              .vertexBindingDescriptionCount = 0,
+              .vertexAttributeDescriptionCount = 0,
+          };
+
+          VkPipelineInputAssemblyStateCreateInfo inputAssembyStateCreateInfo{
+              .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+              .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+              .primitiveRestartEnable = false,
+          };
+
+          std::array dynamicStates{VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_VIEWPORT};
+          VkPipelineDynamicStateCreateInfo dynamicStateCreateInfo{
+              .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+              .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
+              .pDynamicStates = dynamicStates.data(),
+          };
+
+          VkPipelineViewportStateCreateInfo viewportStateCreateInfo{
+              .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+              .viewportCount = 1,
+              .scissorCount = 1,
+          };
+
+          VkPipelineRasterizationStateCreateInfo rasterizationCreateInfo{
+              .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+              .polygonMode = VK_POLYGON_MODE_FILL,
+              .cullMode = VK_CULL_MODE_BACK_BIT,
+              .frontFace = VK_FRONT_FACE_CLOCKWISE,
+              .lineWidth = 1.0f,
+          };
+
+          VkPipelineMultisampleStateCreateInfo multisampleCreateInfo{
+              .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+              .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+          };
+
+          std::array colorBlendAttachments{VkPipelineColorBlendAttachmentState{}};
+          VkPipelineColorBlendStateCreateInfo colorBlendStateCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+            .attachmentCount = static_cast<uint32_t>(colorBlendAttachments.size()),
+            .pAttachments = colorBlendAttachments.data(),
+          };
+
           std::vector<VkGraphicsPipelineCreateInfo> createInfos;
           createInfos.emplace_back(VkGraphicsPipelineCreateInfo{
               .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
               .stageCount = static_cast<uint32_t>(stages.size()),
               .pStages = stages.data(),
+              .pVertexInputState = &vertexInputCreateInfo,
+              .pInputAssemblyState = &inputAssembyStateCreateInfo,
+              .pViewportState = &viewportStateCreateInfo,
+              .pRasterizationState = &rasterizationCreateInfo,
+              .pMultisampleState = &multisampleCreateInfo,
+              .pColorBlendState = &colorBlendStateCreateInfo,
+              .pDynamicState = &dynamicStateCreateInfo,
+              .layout = layout,
           });
 
           VkPipeline pipeline;
