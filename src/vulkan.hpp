@@ -412,9 +412,62 @@ struct PipelineLayout : raii::UniqueHandle<PipelineLayout, VkPipelineLayout> {
   VkDevice device_;
 };
 
+struct RenderPass : raii::UniqueHandle<RenderPass, VkRenderPass> {
+  explicit RenderPass(VkDevice device, VkFormat swapchainFormat)
+      : RenderPass{[&] {
+          std::array attachments{VkAttachmentDescription{
+              .format = swapchainFormat,
+              .samples = VK_SAMPLE_COUNT_1_BIT,
+              .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+              .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+              .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+              .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+              .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+              .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+          }};
+          std::array attachRefs{VkAttachmentReference{
+              .attachment = 0,
+              .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+          }};
+          std::array subpasses{VkSubpassDescription{
+              .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+              .colorAttachmentCount = static_cast<uint32_t>(attachRefs.size()),
+              .pColorAttachments = attachRefs.data(),
+          }};
+
+          VkRenderPassCreateInfo createInfo{
+              .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+              .attachmentCount = static_cast<uint32_t>(attachments.size()),
+              .pAttachments = attachments.data(),
+              .subpassCount = static_cast<uint32_t>(subpasses.size()),
+              .pSubpasses = subpasses.data(),
+          };
+
+          VkRenderPass renderPass{};
+          if (vkCreateRenderPass(device, &createInfo, nullptr, &renderPass) != VK_SUCCESS) {
+            throw std::runtime_error{"failed to create render pass"};
+          }
+          return RenderPass{device, renderPass};
+        }()} {}
+
+ private:
+  RenderPass(VkDevice device, VkRenderPass renderPass) : UniqueHandle{renderPass}, device_{device} {}
+
+  friend UniqueHandle<RenderPass, VkRenderPass>;
+  void destroy(VkRenderPass renderPass) {
+    vkDestroyRenderPass(device_, renderPass, nullptr);
+  }
+
+  VkDevice device_;
+};
+
 struct Pipeline : raii::UniqueHandle<Pipeline, VkPipeline> {
   Pipeline(
-      VkDevice device, ShaderModule const& vertexShader, ShaderModule const& fragmentShader, VkPipelineLayout layout)
+      VkDevice device,
+      ShaderModule const& vertexShader,
+      ShaderModule const& fragmentShader,
+      VkPipelineLayout layout,
+      VkRenderPass renderPass)
       : Pipeline{[&] {
           std::vector<VkPipelineShaderStageCreateInfo> stages{
               VkPipelineShaderStageCreateInfo{
@@ -489,6 +542,7 @@ struct Pipeline : raii::UniqueHandle<Pipeline, VkPipeline> {
               .pColorBlendState = &colorBlendStateCreateInfo,
               .pDynamicState = &dynamicStateCreateInfo,
               .layout = layout,
+              .renderPass = renderPass,
           });
 
           VkPipeline pipeline;

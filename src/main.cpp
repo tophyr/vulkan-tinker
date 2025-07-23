@@ -20,8 +20,13 @@ int main() {
                                        return vk::ImageView{device, img, swapchain.format()};
                                      }));
     vk::PipelineLayout layout{device};
+    vk::RenderPass renderPass{device, swapchain.format()};
     vk::Pipeline pipeline{
-        device, vk::ShaderModule{device, "main.vert.spv"}, vk::ShaderModule{device, "main.frag.spv"}, layout};
+        device,
+        vk::ShaderModule{device, "main.vert.spv"},
+        vk::ShaderModule{device, "main.frag.spv"},
+        layout,
+        renderPass};
 
     while (!glfwWindowShouldClose(window)) {
       glfwPollEvents();
