@@ -524,4 +524,36 @@ struct Framebuffer : raii::ParentedUniqueHandle<VkFramebuffer, vkDestroyFramebuf
         }()} {}
 };
 
+struct CommandPool : raii::ParentedUniqueHandle<VkCommandPool, vkDestroyCommandPool, VkDevice> {
+  CommandPool(VkDevice device, int queueFamilyIndex)
+      : ParentedUniqueHandle{[&] {
+          VkCommandPoolCreateInfo createInfo{
+              .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+              .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+              .queueFamilyIndex = queueFamilyIndex,
+          };
+
+          VkCommandPool commandPool{};
+          if (vkCreateCommandPool(device, &createInfo, nullptr, &commandPool) != VK_SUCCESS) {
+            throw std::runtime_error{"failed to create command pool"};
+          }
+          return std::tuple{device, commandPool, nullptr};
+        }()} {}
+
+  std::vector<VkCommandBuffer> allocateBuffers(size_t count) {
+    VkCommandBufferAllocateInfo info{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = *this,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = count,
+    };
+
+    std::vector<VkCommandBuffer> buffers{count};
+    if (vkAllocateCommandBuffers(parent(), &info, buffers.data()) != VK_SUCCESS) {
+      throw std::runtime_error{"failed to allocate command buffers"};
+    }
+    return buffers;
+  }
+};
+
 }  // namespace vk
