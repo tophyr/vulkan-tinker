@@ -137,6 +137,8 @@ int main() {
       };
       vkQueuePresentKHR(device.presentQueue().queue, &presentInfo);
     }
+
+    vkDeviceWaitIdle(device);
   }
 
   return 0;
