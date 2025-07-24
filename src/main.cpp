@@ -4,6 +4,10 @@
 #include "glfw.hpp"
 #include "vulkan.hpp"
 
+using namespace optalg;
+
+using std::views::transform;
+
 constexpr char const* kName{"Vulkan Tinker"};
 
 void render(
@@ -70,10 +74,9 @@ int main() {
     vk::Surface surface{instance, window};
     vk::Device device{instance, surface, std::array{VK_KHR_SWAPCHAIN_EXTENSION_NAME}};
     vk::Swapchain swapchain{window, device, surface};
-    auto imageViews =
-        swapchain.images() |
-        std::views::transform([&](auto const& img) { return vk::ImageView{device, img, swapchain.format()}; }) |
-        optalg::to<std::vector>();
+    auto imageViews = swapchain.images() |
+                      transform([&](auto const& img) { return vk::ImageView{device, img, swapchain.format()}; }) |
+                      to<std::vector>();
     vk::PipelineLayout layout{device};
     vk::RenderPass renderPass{device, swapchain.format()};
     vk::Pipeline pipeline{
@@ -83,14 +86,16 @@ int main() {
         layout,
         renderPass};
     auto framebuffers =
-        imageViews | std::views::transform([&](auto const& iv) {
+        imageViews | transform([&](auto const& iv) {
           return vk::Framebuffer{device, std::array{static_cast<VkImageView>(iv)}, renderPass, swapchain.extent()};
         }) |
-        optalg::to<std::vector>();
+        to<std::vector>();
     vk::CommandPool commandPool{device, device.graphicsQueue().familyIndex};
     auto commandBuffers = commandPool.allocateBuffers(1);
 
-    vk::Semaphore imageAvailable{device}, renderFinished{device};
+    vk::Semaphore imageAvailable{device};
+    auto renderFinished =
+        imageViews | transform([&](auto const&) { return vk::Semaphore{device}; }) | to<std::vector>();
     vk::Fence inflight{device, VK_FENCE_CREATE_SIGNALED_BIT};
 
     while (!glfwWindowShouldClose(window)) {
@@ -113,7 +118,7 @@ int main() {
           .commandBufferCount = static_cast<uint32_t>(commandBuffers.size()),
           .pCommandBuffers = commandBuffers.data(),
           .signalSemaphoreCount = 1,
-          .pSignalSemaphores = renderFinished.ptr(),
+          .pSignalSemaphores = renderFinished[imgIdx].ptr(),
       }};
       if (vkQueueSubmit(
               device.graphicsQueue().queue, static_cast<uint32_t>(submitInfos.size()), submitInfos.data(), inflight) !=
@@ -125,7 +130,7 @@ int main() {
       VkPresentInfoKHR presentInfo{
           .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
           .waitSemaphoreCount = 1,
-          .pWaitSemaphores = renderFinished.ptr(),
+          .pWaitSemaphores = renderFinished[imgIdx].ptr(),
           .swapchainCount = static_cast<uint32_t>(swapchains.size()),
           .pSwapchains = swapchains.data(),
           .pImageIndices = &imgIdx,
