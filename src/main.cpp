@@ -91,23 +91,30 @@ int main() {
         }) |
         to<std::vector>();
     vk::CommandPool commandPool{device, device.graphicsQueue().familyIndex};
-    auto commandBuffers = commandPool.allocateBuffers(1);
 
-    vk::Semaphore imageAvailable{device};
-    auto renderFinished =
-        imageViews | transform([&](auto const&) { return vk::Semaphore{device}; }) | to<std::vector>();
-    vk::Fence inflight{device, VK_FENCE_CREATE_SIGNALED_BIT};
-
+    auto perFrame = commandPool.allocateBuffers(static_cast<uint32_t>(imageViews.size())) |
+                    transform([&](auto const& cmdBuffer) {
+                      return std::tuple{
+                          cmdBuffer,
+                          vk::Semaphore{device},                           // imageAvailable
+                          vk::Semaphore{device},                           // renderFinished
+                          vk::Fence{device, VK_FENCE_CREATE_SIGNALED_BIT}  // cmdBufferReady
+                      };
+                    }) |
+                    to<std::vector>();
+    uint_fast8_t frameIdx = 0;
     while (!glfwWindowShouldClose(window)) {
       glfwPollEvents();
 
-      inflight.wait();
-      inflight.reset();
+      auto& [cmdBuffer, imageAvailable, renderFinished, cmdBufferReady] = perFrame[frameIdx];
+
+      cmdBufferReady.wait();
+      cmdBufferReady.reset();
 
       auto imgIdx = vk::acquireNextImageKHR(device, swapchain, imageAvailable);
 
-      vkResetCommandBuffer(commandBuffers.front(), {});
-      render(commandBuffers.front(), framebuffers[imgIdx], renderPass, swapchain.extent(), pipeline);
+      vkResetCommandBuffer(cmdBuffer, {});
+      render(cmdBuffer, framebuffers[imgIdx], renderPass, swapchain.extent(), pipeline);
 
       std::array waitStages{VkPipelineStageFlags{VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT}};
       std::array submitInfos{VkSubmitInfo{
@@ -115,14 +122,16 @@ int main() {
           .waitSemaphoreCount = 1,
           .pWaitSemaphores = imageAvailable.ptr(),
           .pWaitDstStageMask = waitStages.data(),
-          .commandBufferCount = static_cast<uint32_t>(commandBuffers.size()),
-          .pCommandBuffers = commandBuffers.data(),
+          .commandBufferCount = 1,
+          .pCommandBuffers = &cmdBuffer,
           .signalSemaphoreCount = 1,
-          .pSignalSemaphores = renderFinished[imgIdx].ptr(),
+          .pSignalSemaphores = renderFinished.ptr(),
       }};
       if (vkQueueSubmit(
-              device.graphicsQueue().queue, static_cast<uint32_t>(submitInfos.size()), submitInfos.data(), inflight) !=
-          VK_SUCCESS) {
+              device.graphicsQueue().queue,
+              static_cast<uint32_t>(submitInfos.size()),
+              submitInfos.data(),
+              cmdBufferReady) != VK_SUCCESS) {
         throw std::runtime_error{"failed to submit queue"};
       }
 
@@ -130,12 +139,16 @@ int main() {
       VkPresentInfoKHR presentInfo{
           .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
           .waitSemaphoreCount = 1,
-          .pWaitSemaphores = renderFinished[imgIdx].ptr(),
+          .pWaitSemaphores = renderFinished.ptr(),
           .swapchainCount = static_cast<uint32_t>(swapchains.size()),
           .pSwapchains = swapchains.data(),
           .pImageIndices = &imgIdx,
       };
       vkQueuePresentKHR(device.presentQueue().queue, &presentInfo);
+
+      if (++frameIdx >= imageViews.size()) {
+        frameIdx = 0;
+      }
     }
 
     vkDeviceWaitIdle(device);
