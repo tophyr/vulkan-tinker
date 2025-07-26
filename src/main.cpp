@@ -54,6 +54,8 @@ struct RenderInfo {
 };
 
 void render(VkCommandBuffer commandBuffer, RenderInfo const& renderInfo, FrameIndex idx) {
+  vkResetCommandBuffer(commandBuffer, {});
+
   VkCommandBufferBeginInfo beginInfo{
       .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
   };
@@ -132,38 +134,10 @@ int main() {
         auto imgIdx = vk::acquireNextImageKHR(device, renderInfo->swapchain, imageAvailable);
         cmdBufferReady.reset();
 
-        vkResetCommandBuffer(cmdBuffer, {});
         render(cmdBuffer, *renderInfo, frameIdx);
 
-        std::array waitStages{VkPipelineStageFlags{VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT}};
-        std::array submitInfos{VkSubmitInfo{
-            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-            .waitSemaphoreCount = 1,
-            .pWaitSemaphores = imageAvailable.ptr(),
-            .pWaitDstStageMask = waitStages.data(),
-            .commandBufferCount = 1,
-            .pCommandBuffers = &cmdBuffer,
-            .signalSemaphoreCount = 1,
-            .pSignalSemaphores = renderFinished.ptr(),
-        }};
-        if (vkQueueSubmit(
-                device.graphicsQueue().queue,
-                static_cast<uint32_t>(submitInfos.size()),
-                submitInfos.data(),
-                cmdBufferReady) != VK_SUCCESS) {
-          throw std::runtime_error{"failed to submit queue"};
-        }
-
-        std::array swapchains{static_cast<VkSwapchainKHR>(renderInfo->swapchain)};
-        VkPresentInfoKHR presentInfo{
-            .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-            .waitSemaphoreCount = 1,
-            .pWaitSemaphores = renderFinished.ptr(),
-            .swapchainCount = static_cast<uint32_t>(swapchains.size()),
-            .pSwapchains = swapchains.data(),
-            .pImageIndices = &imgIdx,
-        };
-        vkQueuePresentKHR(device.presentQueue().queue, &presentInfo);
+        vk::queueSubmit(device, cmdBuffer, imageAvailable, renderFinished, cmdBufferReady);
+        vk::presentQueue(device, renderInfo->swapchain, renderFinished, imgIdx);
 
         if (++frameIdx >= renderInfo->imageViews.size()) {
           frameIdx = 0;

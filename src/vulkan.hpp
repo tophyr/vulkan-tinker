@@ -626,4 +626,42 @@ struct Fence : raii::ParentedUniqueHandle<VkFence, vkDestroyFence, VkDevice> {
   }
 };
 
+inline auto presentQueue(Device const& device, VkSwapchainKHR swapchain, VkSemaphore renderFinished, uint32_t imgIdx) {
+  VkPresentInfoKHR presentInfo{
+      .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+      .waitSemaphoreCount = 1,
+      .pWaitSemaphores = &renderFinished,
+      .swapchainCount = 1,
+      .pSwapchains = &swapchain,
+      .pImageIndices = &imgIdx,
+  };
+  vkQueuePresentKHR(device.presentQueue().queue, &presentInfo);
+}
+
+inline auto queueSubmit(
+    Device const& device,
+    VkCommandBuffer cmdBuffer,
+    VkSemaphore imageAvailable,
+    VkSemaphore renderFinished,
+    VkFence cmdBufferReady) {
+  std::array waitStages{VkPipelineStageFlags{VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT}};
+  std::array submitInfos{VkSubmitInfo{
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+      .waitSemaphoreCount = 1,
+      .pWaitSemaphores = &imageAvailable,
+      .pWaitDstStageMask = waitStages.data(),
+      .commandBufferCount = 1,
+      .pCommandBuffers = &cmdBuffer,
+      .signalSemaphoreCount = 1,
+      .pSignalSemaphores = &renderFinished,
+  }};
+  if (vkQueueSubmit(
+          device.graphicsQueue().queue,
+          static_cast<uint32_t>(submitInfos.size()),
+          submitInfos.data(),
+          cmdBufferReady) != VK_SUCCESS) {
+    throw std::runtime_error{"failed to submit queue"};
+  }
+}
+
 }  // namespace vk
