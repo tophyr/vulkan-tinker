@@ -10,12 +10,50 @@ using std::views::transform;
 
 constexpr char const* kName{"Vulkan Tinker"};
 
-void render(
-    VkCommandBuffer commandBuffer,
-    VkFramebuffer framebuffer,
-    VkRenderPass renderPass,
-    VkExtent2D extent,
-    VkPipeline pipeline) {
+struct SynchronizedCommandBuffer {
+  SynchronizedCommandBuffer(VkDevice device, VkCommandBuffer commandBuffer)
+      : commandBuffer{commandBuffer},
+        imageAvailable{device},
+        renderFinished{device},
+        cmdBufferReady{device, VK_FENCE_CREATE_SIGNALED_BIT} {}
+
+  VkCommandBuffer commandBuffer;
+  vk::Semaphore imageAvailable;
+  vk::Semaphore renderFinished;
+  vk::Fence cmdBufferReady;
+};
+
+using FrameIndex = uint_fast8_t;
+struct RenderInfo {
+  RenderInfo(
+      GLFWwindow* window,
+      vk::Device const& device,
+      VkSurfaceKHR surface,
+      vk::ShaderModule const& vertexShader,
+      vk::ShaderModule const& fragmentShader,
+      VkPipelineLayout layout,
+      VkSwapchainKHR oldSwapchain = {})
+      : swapchain{window, device, surface, oldSwapchain},
+        imageViews{
+            swapchain.images() |
+            transform([&](auto const& img) { return vk::ImageView{device, img, swapchain.format()}; }) |
+            to<std::vector>()},
+        renderPass{device, swapchain.format()},
+        pipeline{device, vertexShader, fragmentShader, layout, renderPass},
+        framebuffers{
+            imageViews | transform([&](auto const& iv) {
+              return vk::Framebuffer{device, std::array{static_cast<VkImageView>(iv)}, renderPass, swapchain.extent()};
+            }) |
+            to<std::vector>()} {}
+
+  vk::Swapchain swapchain;
+  std::vector<vk::ImageView> imageViews;
+  vk::RenderPass renderPass;
+  vk::Pipeline pipeline;
+  std::vector<vk::Framebuffer> framebuffers;
+};
+
+void render(VkCommandBuffer commandBuffer, RenderInfo const& renderInfo, FrameIndex idx) {
   VkCommandBufferBeginInfo beginInfo{
       .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
   };
@@ -26,32 +64,32 @@ void render(
   std::array clearValues{VkClearValue{{0, 0, 0, 1}}};
   VkRenderPassBeginInfo renderPassInfo{
       .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-      .renderPass = renderPass,
-      .framebuffer = framebuffer,
+      .renderPass = renderInfo.renderPass,
+      .framebuffer = renderInfo.framebuffers[idx],
       .renderArea =
           {
               .offset = {0, 0},
-              .extent = extent,
+              .extent = renderInfo.swapchain.extent(),
           },
       .clearValueCount = static_cast<uint32_t>(clearValues.size()),
       .pClearValues = clearValues.data(),
   };
   vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, renderInfo.pipeline);
 
   std::array viewports{VkViewport{
       .x = 0,
       .y = 0,
-      .width = static_cast<float>(extent.width),
-      .height = static_cast<float>(extent.height),
+      .width = static_cast<float>(renderInfo.swapchain.extent().width),
+      .height = static_cast<float>(renderInfo.swapchain.extent().height),
       .minDepth = 0,
       .maxDepth = 1,
   }};
   vkCmdSetViewport(commandBuffer, 0, static_cast<uint32_t>(viewports.size()), viewports.data());
 
   std::array scissors{VkRect2D{
-      .extent = extent,
+      .extent = renderInfo.swapchain.extent(),
   }};
   vkCmdSetScissor(commandBuffer, 0, static_cast<uint32_t>(scissors.size()), scissors.data());
 
@@ -73,80 +111,69 @@ int main() {
     vk::Instance instance{kName, std::array{"VK_LAYER_KHRONOS_validation"}};
     vk::Surface surface{instance, window};
     vk::Device device{instance, surface, std::array{VK_KHR_SWAPCHAIN_EXTENSION_NAME}};
-    vk::Swapchain swapchain{window, device, surface};
-    auto imageViews = swapchain.images() |
-                      transform([&](auto const& img) { return vk::ImageView{device, img, swapchain.format()}; }) |
-                      to<std::vector>();
-    vk::PipelineLayout layout{device};
-    vk::RenderPass renderPass{device, swapchain.format()};
-    vk::Pipeline pipeline{
-        device,
-        vk::ShaderModule{device, "main.vert.spv"},
-        vk::ShaderModule{device, "main.frag.spv"},
-        layout,
-        renderPass};
-    auto framebuffers =
-        imageViews | transform([&](auto const& iv) {
-          return vk::Framebuffer{device, std::array{static_cast<VkImageView>(iv)}, renderPass, swapchain.extent()};
-        }) |
-        to<std::vector>();
+    vk::PipelineLayout shaderLayout{device};
+    vk::ShaderModule vertexShader{device, "main.vert.spv"};
+    vk::ShaderModule fragmentShader{device, "main.frag.spv"};
     vk::CommandPool commandPool{device, device.graphicsQueue().familyIndex};
 
-    auto perFrame = commandPool.allocateBuffers(static_cast<uint32_t>(imageViews.size())) |
-                    transform([&](auto const& cmdBuffer) {
-                      return std::tuple{
-                          cmdBuffer,
-                          vk::Semaphore{device},                           // imageAvailable
-                          vk::Semaphore{device},                           // renderFinished
-                          vk::Fence{device, VK_FENCE_CREATE_SIGNALED_BIT}  // cmdBufferReady
-                      };
-                    }) |
-                    to<std::vector>();
-    uint_fast8_t frameIdx = 0;
+    std::optional<RenderInfo> renderInfo{
+        std::in_place, window, device, surface, vertexShader, fragmentShader, shaderLayout};
+    auto perFrame = commandPool.allocateBuffers(static_cast<uint32_t>(renderInfo->imageViews.size())) |
+                    transform([&](auto cb) { return SynchronizedCommandBuffer{device, cb}; }) | to<std::vector>();
+    FrameIndex frameIdx = 0;
     while (!glfwWindowShouldClose(window)) {
       glfwPollEvents();
 
       auto& [cmdBuffer, imageAvailable, renderFinished, cmdBufferReady] = perFrame[frameIdx];
 
       cmdBufferReady.wait();
-      cmdBufferReady.reset();
 
-      auto imgIdx = vk::acquireNextImageKHR(device, swapchain, imageAvailable);
+      try {
+        auto imgIdx = vk::acquireNextImageKHR(device, renderInfo->swapchain, imageAvailable);
+        cmdBufferReady.reset();
 
-      vkResetCommandBuffer(cmdBuffer, {});
-      render(cmdBuffer, framebuffers[imgIdx], renderPass, swapchain.extent(), pipeline);
+        vkResetCommandBuffer(cmdBuffer, {});
+        render(cmdBuffer, *renderInfo, frameIdx);
 
-      std::array waitStages{VkPipelineStageFlags{VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT}};
-      std::array submitInfos{VkSubmitInfo{
-          .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-          .waitSemaphoreCount = 1,
-          .pWaitSemaphores = imageAvailable.ptr(),
-          .pWaitDstStageMask = waitStages.data(),
-          .commandBufferCount = 1,
-          .pCommandBuffers = &cmdBuffer,
-          .signalSemaphoreCount = 1,
-          .pSignalSemaphores = renderFinished.ptr(),
-      }};
-      if (vkQueueSubmit(
-              device.graphicsQueue().queue,
-              static_cast<uint32_t>(submitInfos.size()),
-              submitInfos.data(),
-              cmdBufferReady) != VK_SUCCESS) {
-        throw std::runtime_error{"failed to submit queue"};
-      }
+        std::array waitStages{VkPipelineStageFlags{VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT}};
+        std::array submitInfos{VkSubmitInfo{
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = imageAvailable.ptr(),
+            .pWaitDstStageMask = waitStages.data(),
+            .commandBufferCount = 1,
+            .pCommandBuffers = &cmdBuffer,
+            .signalSemaphoreCount = 1,
+            .pSignalSemaphores = renderFinished.ptr(),
+        }};
+        if (vkQueueSubmit(
+                device.graphicsQueue().queue,
+                static_cast<uint32_t>(submitInfos.size()),
+                submitInfos.data(),
+                cmdBufferReady) != VK_SUCCESS) {
+          throw std::runtime_error{"failed to submit queue"};
+        }
 
-      std::array swapchains{static_cast<VkSwapchainKHR>(swapchain)};
-      VkPresentInfoKHR presentInfo{
-          .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-          .waitSemaphoreCount = 1,
-          .pWaitSemaphores = renderFinished.ptr(),
-          .swapchainCount = static_cast<uint32_t>(swapchains.size()),
-          .pSwapchains = swapchains.data(),
-          .pImageIndices = &imgIdx,
-      };
-      vkQueuePresentKHR(device.presentQueue().queue, &presentInfo);
+        std::array swapchains{static_cast<VkSwapchainKHR>(renderInfo->swapchain)};
+        VkPresentInfoKHR presentInfo{
+            .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = renderFinished.ptr(),
+            .swapchainCount = static_cast<uint32_t>(swapchains.size()),
+            .pSwapchains = swapchains.data(),
+            .pImageIndices = &imgIdx,
+        };
+        vkQueuePresentKHR(device.presentQueue().queue, &presentInfo);
 
-      if (++frameIdx >= imageViews.size()) {
+        if (++frameIdx >= renderInfo->imageViews.size()) {
+          frameIdx = 0;
+        }
+      } catch (vk::OutOfDateError const&) {
+        // irritatingly, there is *absolutely* no way (in standard VK) to know when an image has completed
+        // presentation so the only way to safely clean up the associated resources (pipeline, semaphore, etc) is to
+        // wait until the gpu idles.
+        vkDeviceWaitIdle(device);
+        renderInfo.emplace(window, device, surface, vertexShader, fragmentShader, shaderLayout);
         frameIdx = 0;
       }
     }

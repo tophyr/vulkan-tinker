@@ -17,6 +17,10 @@
 
 namespace vk {
 
+struct OutOfDateError : std::runtime_error {
+  OutOfDateError() : runtime_error{""} {}
+};
+
 inline auto enumerateInstanceLayerProperties() {
   return raii::VecFetcher<VkLayerProperties, vkEnumerateInstanceLayerProperties>();
 }
@@ -66,10 +70,17 @@ inline auto getSwapchainImagesKHR(VkDevice device, VkSwapchainKHR swapchain) {
   return raii::VecFetcher<VkImage, vkGetSwapchainImagesKHR>(device, swapchain);
 }
 
+template <bool ErrorOnSuboptimal = true>
 inline auto acquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, VkSemaphore semaphore) {
   uint32_t index{};
-  vkAcquireNextImageKHR(device, swapchain, std::numeric_limits<uint64_t>::max(), semaphore, {}, &index);
-  return index;
+  auto res = vkAcquireNextImageKHR(device, swapchain, std::numeric_limits<uint64_t>::max(), semaphore, {}, &index);
+  if (res == VK_SUCCESS || (res == VK_SUBOPTIMAL_KHR && !ErrorOnSuboptimal)) {
+    return index;
+  } else if (res == VK_ERROR_OUT_OF_DATE_KHR || (res == VK_SUBOPTIMAL_KHR && ErrorOnSuboptimal)) {
+    throw OutOfDateError{};
+  } else {
+    throw std::runtime_error{"failed to acquire image"};
+  }
 }
 
 struct Instance : raii::UniqueHandle<Instance, VkInstance> {
@@ -226,7 +237,7 @@ struct Surface : raii::ParentedUniqueHandle<VkSurfaceKHR, vkDestroySurfaceKHR, V
 };
 
 struct Swapchain : raii::ParentedUniqueHandle<VkSwapchainKHR, vkDestroySwapchainKHR, VkDevice> {
-  Swapchain(GLFWwindow* window, Device const& device, VkSurfaceKHR surface)
+  Swapchain(GLFWwindow* window, Device const& device, VkSurfaceKHR surface, VkSwapchainKHR oldSwapchain = {})
       : Swapchain{[&] {
           auto surfaceFormat = [&] {
             auto formats = getPhysicalDeviceSurfaceFormatsKHR(device.physicalDevice(), surface);
@@ -271,6 +282,7 @@ struct Swapchain : raii::ParentedUniqueHandle<VkSwapchainKHR, vkDestroySwapchain
                                  [](auto const& mode) { return mode == VK_PRESENT_MODE_MAILBOX_KHR; })
                                  .value_or(VK_PRESENT_MODE_FIFO_KHR),
               .clipped = true,
+              .oldSwapchain = oldSwapchain,
           };
 
           VkSwapchainKHR swapchain;
@@ -603,12 +615,12 @@ struct Fence : raii::ParentedUniqueHandle<VkFence, vkDestroyFence, VkDevice> {
           return std::tuple{device, fence, nullptr};
         }()} {}
 
-  void wait(uint64_t timeout = std::numeric_limits<uint64_t>::max()) {
+  void wait(uint64_t timeout = std::numeric_limits<uint64_t>::max()) const {
     std::array fences{static_cast<VkFence>(*this)};
     vkWaitForFences(parent(), static_cast<uint32_t>(fences.size()), fences.data(), true, timeout);
   }
 
-  void reset() {
+  void reset() const {
     std::array fences{static_cast<VkFence>(*this)};
     vkResetFences(parent(), static_cast<uint32_t>(fences.size()), fences.data());
   }
