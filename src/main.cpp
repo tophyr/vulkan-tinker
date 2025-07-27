@@ -110,7 +110,7 @@ int main() {
 
   {
     glfw::Window window{1920, 1080, kName};
-    vk::Instance instance{kName, std::array{"VK_LAYER_KHRONOS_validation"}};
+    vk::Instance instance{kName, {}, {{"VK_LAYER_KHRONOS_validation"}}};
     vk::Surface surface{instance, window};
     vk::Device device{instance, surface, std::array{VK_KHR_SWAPCHAIN_EXTENSION_NAME}};
     vk::PipelineLayout shaderLayout{device};

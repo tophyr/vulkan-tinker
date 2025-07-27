@@ -25,6 +25,10 @@ inline auto enumerateInstanceLayerProperties() {
   return raii::VecFetcher<VkLayerProperties, vkEnumerateInstanceLayerProperties>();
 }
 
+inline auto enumerateInstanceExtensionProperties(char const* layerName = nullptr) {
+  return raii::VecFetcher<VkExtensionProperties, vkEnumerateInstanceExtensionProperties>(layerName);
+}
+
 inline auto enumeratePhysicalDevices(VkInstance instance) {
   return raii::VecFetcher<VkPhysicalDevice, vkEnumeratePhysicalDevices>(instance);
 }
@@ -84,16 +88,36 @@ inline auto acquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, VkSem
 }
 
 struct Instance : raii::UniqueHandle<Instance, VkInstance> {
-  Instance(char const* name, std::span<char const* const> requiredLayers = {})
+  struct Functionality {
+    std::vector<char const*> required;
+    std::vector<char const*> optional;
+  };
+
+  Instance(char const* name, Functionality extensions = {}, Functionality layers = {})
       : UniqueHandle{[&] {
-          if (!std::ranges::all_of(
-                  requiredLayers, [availableLayers = enumerateInstanceLayerProperties()](auto const& req) {
-                    return std::ranges::any_of(availableLayers, [svReq = std::string_view{req}](auto const& layer) {
-                      return svReq == layer.layerName;
-                    });
-                  })) {
-            throw std::runtime_error{"not all required layers available"};
-          }
+          using namespace optalg;
+          using namespace std::views;
+
+          auto enabledExtensions =
+              std::array{
+                  glfw::getRequiredInstanceExtensions() | to<std::vector>(),
+                  std::move(extensions.required),
+                  std::move(extensions.optional) |
+                      filter([avail = enumerateInstanceExtensionProperties()](auto const& opt) {
+                        return std::ranges::any_of(
+                            avail, [sv = std::string_view{opt}](auto const& prop) { return sv == prop.extensionName; });
+                      }) |
+                      to<std::vector>()} |
+              join | to<std::vector>();
+
+          auto enabledLayers =
+              std::array{
+                  std::move(layers.required),
+                  std::move(layers.optional) | filter([avail = enumerateInstanceLayerProperties()](auto const& opt) {
+                    return std::ranges::any_of(
+                        avail, [sv = std::string_view{opt}](auto const& prop) { return sv == prop.layerName; });
+                  }) | to<std::vector>()} |
+              join | to<std::vector>();
 
           VkApplicationInfo appInfo{
               .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -101,16 +125,13 @@ struct Instance : raii::UniqueHandle<Instance, VkInstance> {
               .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
               .apiVersion = VK_API_VERSION_1_0,
           };
-
-          auto glfwExtensions = glfw::getRequiredInstanceExtensions();
-
           VkInstanceCreateInfo createInfo{
               .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
               .pApplicationInfo = &appInfo,
-              .enabledLayerCount = static_cast<uint32_t>(requiredLayers.size()),
-              .ppEnabledLayerNames = requiredLayers.data(),
-              .enabledExtensionCount = static_cast<uint32_t>(glfwExtensions.size()),
-              .ppEnabledExtensionNames = glfwExtensions.data(),
+              .enabledLayerCount = static_cast<uint32_t>(enabledLayers.size()),
+              .ppEnabledLayerNames = enabledLayers.data(),
+              .enabledExtensionCount = static_cast<uint32_t>(enabledExtensions.size()),
+              .ppEnabledExtensionNames = enabledExtensions.data(),
           };
 
           VkInstance instance{};

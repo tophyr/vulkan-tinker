@@ -108,8 +108,8 @@ std::optional<std::remove_cvref_t<decltype(*std::declval<Collection>().begin())>
 }
 
 template <template <typename...> typename To> struct ToFunctor {
-  template <typename Range> auto operator()(Range&& range) {
-    using T = std::remove_cvref_t<decltype(*std::begin(std::declval<Range>()))>;
+  template <typename Range> decltype(auto) operator()(Range&& range) {
+    using T = std::decay_t<std::remove_cvref_t<std::ranges::range_value_t<Range>>>;
     if constexpr (std::is_same_v<Range, To<T>>) {
       return range;
     } else {
@@ -117,10 +117,11 @@ template <template <typename...> typename To> struct ToFunctor {
     }
   }
 };
-template <template <typename...> typename To, typename Range> auto operator|(Range&& range, ToFunctor<To>&& to) {
+template <template <typename...> typename To, typename Range>
+decltype(auto) operator|(Range&& range, ToFunctor<To>&& to) {
   return std::forward<ToFunctor<To>>(to)(std::forward<Range>(range));
 }
-template <template <typename...> typename To> auto to() {
+template <template <typename...> typename To> decltype(auto) to() {
   return ToFunctor<To>{};
 }
 
